@@ -58,8 +58,8 @@ export default function Home() {
         style={{
           maxWidth: "300px",
           width: "100%",
-          padding: "80px 0",
-          scrollMarginTop: "120px",
+          padding: "30px 0",
+          scrollMarginTop: "80px",
         }}
       >
         <h2 style={{ fontSize: "32px", marginBottom: "16px" }}>How it works</h2>
