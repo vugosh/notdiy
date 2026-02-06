@@ -1,0 +1,82 @@
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body style={{ margin: 0, fontFamily: "Arial, sans-serif" }}>
+
+        {/* HEADER */}
+        <header
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: "#fff",
+            borderBottom: "1px solid #eee",
+            padding: "14px 24px",
+            zIndex: 50,
+          }}
+        >
+          <nav
+            style={{
+              maxWidth: "1100px",
+              margin: "0 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            {/* LOGO */}
+<a href="/" style={{ display: "inline-block" }}>
+  <img
+    src="/notdiy-logo.png"
+    alt="notDIY"
+    style={{
+      height: "30px",
+      cursor: "pointer",
+    }}
+  />
+</a>
+
+
+            {/* MENU BUTTONS */}
+            <div style={{ display: "flex", gap: "10px" }}>
+  <a href="#how-it-works" style={{ textDecoration: "none" }}>
+    <button style={menuBtn}>How it works</button>
+  </a>
+
+  <a href="#become-handyman" style={{ textDecoration: "none" }}>
+    <button style={menuBtn}>Become a Handyman</button>
+  </a>
+</div>
+          </nav>
+        </header>
+
+        {/* PAGE CONTENT */}
+        <main style={{ paddingTop: "120px" }}>
+          {children}
+        </main>
+
+      </body>
+    </html>
+  );
+}
+
+const menuBtn = {
+  padding: "8px 14px",
+  border: "1px solid #000",
+  background: "#fff",
+  cursor: "pointer",
+};
+
+const ctaBtn = {
+  padding: "8px 16px",
+  border: "2px solid #000",
+  background: "#000",
+  color: "#fff",
+  cursor: "pointer",
+  fontWeight: 600,
+};
