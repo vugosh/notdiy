@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { supabase } from "../lib/supabaseClient";
 import {
   useMemo,
@@ -13,23 +15,25 @@ import {
 export default function RequestPage() {
   const ORANGE = "#ff8c2b";
 
-  // Bucket name in Supabase Storage
-  const BUCKET = "request-media";
-
   // FILE LIMITS (per file)
   const MAX_MB = 50;
   const MAX_BYTES = MAX_MB * 1024 * 1024;
 
-  // UI states
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // STORAGE BUCKET
+  const BUCKET = "request-media";
 
   // MEDIA STATE (photo+video together)
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [mediaError, setMediaError] = useState<string>("");
 
+  // UI STATE
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string>("");
+
   function handleMediaChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
     setMediaError("");
+    setUploadNote("");
 
     if (!files.length) {
       setMediaFiles([]);
@@ -75,7 +79,18 @@ export default function RequestPage() {
 
   function safeFileName(name: string) {
     // very simple sanitize
-    return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    return name.replace(/[^\w.\-]+/g, "_");
+  }
+
+  function makeId() {
+    // folder id for storage paths
+    try {
+      // modern browsers
+      return crypto.randomUUID();
+    } catch {
+      // fallback
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -84,7 +99,6 @@ export default function RequestPage() {
 
     const form = e.currentTarget;
 
-    // Required media check
     if (mediaFiles.length === 0) {
       setMediaError("You must upload at least one photo or video.");
       return;
@@ -92,77 +106,76 @@ export default function RequestPage() {
     if (mediaError) return;
 
     setIsSubmitting(true);
+    setUploadNote("Uploading media...");
 
     try {
       const data = new FormData(form);
 
-      // 1) INSERT request and get requestId
-      const { data: created, error: insertErr } = await supabase
-        .from("requests")
-        .insert({
-          first_name: String(data.get("firstName") ?? ""),
-          last_name: String(data.get("lastName") ?? ""),
-          email: String(data.get("email") ?? ""),
-          phone: String(data.get("phone") ?? ""),
-          address: String(data.get("address") ?? ""),
-          zip: String(data.get("zip") ?? ""),
-          title: String(data.get("title") ?? ""),
-          description: String(data.get("description") ?? ""),
-          media_urls: [], // will update after upload
-          status: "new",
-        })
-        .select("id")
-        .single();
-
-      if (insertErr || !created?.id) {
-        console.error(insertErr);
-        alert("Insert error. Check console.");
-        return;
-      }
-
-      const requestId = created.id as string;
-
-      // 2) Upload files to Storage
+      // 1) Upload media to Storage
+      const folderId = makeId(); // we'll store files under this folder
       const uploadedUrls: string[] = [];
 
       for (let i = 0; i < mediaFiles.length; i++) {
         const file = mediaFiles[i];
-        const cleanName = safeFileName(file.name);
-        const path = `requests/${requestId}/${Date.now()}_${i}_${cleanName}`;
+        setUploadNote(`Uploading ${i + 1}/${mediaFiles.length}: ${file.name}`);
 
-        const { error: uploadErr } = await supabase.storage
+        const ext = file.name.includes(".")
+          ? file.name.split(".").pop()
+          : "";
+        const base = safeFileName(file.name.replace(/\.[^/.]+$/, ""));
+        const path = `${folderId}/${Date.now()}-${i}-${base}${ext ? "." + ext : ""}`;
+
+        const { error: upErr } = await supabase.storage
           .from(BUCKET)
           .upload(path, file, {
             cacheControl: "3600",
             upsert: false,
-            contentType: file.type,
+            contentType: file.type || undefined,
           });
 
-        if (uploadErr) {
-          console.error(uploadErr);
-          alert("Media upload error. Check console.");
+        if (upErr) {
+          console.error("Upload error:", upErr);
+          alert(`Upload error: ${file.name}`);
+          setIsSubmitting(false);
+          setUploadNote("");
           return;
         }
 
-        // 3) Build PUBLIC URL and store it
-        const { data: publicData } = supabase.storage
+        const { data: pub } = supabase.storage
           .from(BUCKET)
           .getPublicUrl(path);
 
-        if (publicData?.publicUrl) {
-          uploadedUrls.push(publicData.publicUrl);
+        if (!pub?.publicUrl) {
+          alert("Could not generate public URL for uploaded file.");
+          setIsSubmitting(false);
+          setUploadNote("");
+          return;
         }
+
+        uploadedUrls.push(pub.publicUrl);
       }
 
-      // 4) Update requests.media_urls with uploaded URLs
-      const { error: updateErr } = await supabase
-        .from("requests")
-        .update({ media_urls: uploadedUrls })
-        .eq("id", requestId);
+      // 2) Insert request into DB with media_urls already filled
+      setUploadNote("Saving request...");
 
-      if (updateErr) {
-        console.error(updateErr);
-        alert("Saved request, but failed to save media URLs. Check console.");
+      const { error: insertErr } = await supabase.from("requests").insert({
+        first_name: String(data.get("firstName") ?? ""),
+        last_name: String(data.get("lastName") ?? ""),
+        email: String(data.get("email") ?? ""),
+        phone: String(data.get("phone") ?? ""),
+        address: String(data.get("address") ?? ""),
+        zip: String(data.get("zip") ?? ""),
+        title: String(data.get("title") ?? ""),
+        description: String(data.get("description") ?? ""),
+        media_urls: uploadedUrls,
+        status: "new",
+      });
+
+      if (insertErr) {
+        console.error("Insert error:", insertErr);
+        alert("Insert error. Check console.");
+        setIsSubmitting(false);
+        setUploadNote("");
         return;
       }
 
@@ -171,8 +184,13 @@ export default function RequestPage() {
       form.reset();
       setMediaFiles([]);
       setMediaError("");
-    } finally {
+      setUploadNote("");
       setIsSubmitting(false);
+    } catch (err) {
+      console.error(err);
+      alert("Unexpected error. Check console.");
+      setIsSubmitting(false);
+      setUploadNote("");
     }
   }
 
@@ -217,28 +235,74 @@ export default function RequestPage() {
           </h2>
 
           <label style={labelStyle}>First name *</label>
-          <input name="firstName" required placeholder="First name" style={inputStyle} />
+          <input
+            name="firstName"
+            required
+            placeholder="First name"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           <label style={labelStyle}>Last name *</label>
-          <input name="lastName" required placeholder="Last name" style={inputStyle} />
+          <input
+            name="lastName"
+            required
+            placeholder="Last name"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           <label style={labelStyle}>Email *</label>
-          <input name="email" type="email" required placeholder="email@example.com" style={inputStyle} />
+          <input
+            name="email"
+            type="email"
+            required
+            placeholder="email@example.com"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           <label style={labelStyle}>Phone number *</label>
-          <input name="phone" type="tel" required placeholder="(xxx) xxx-xxxx" style={inputStyle} />
+          <input
+            name="phone"
+            type="tel"
+            required
+            placeholder="(xxx) xxx-xxxx"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           <label style={labelStyle}>Home address *</label>
-          <input name="address" required placeholder="Street, City, State" style={inputStyle} />
+          <input
+            name="address"
+            required
+            placeholder="Street, City, State"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           <label style={labelStyle}>ZIP code *</label>
-          <input name="zip" required placeholder="ZIP code" style={inputStyle} />
+          <input
+            name="zip"
+            required
+            placeholder="ZIP code"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           {/* ISSUE INFO */}
-          <h2 style={{ fontSize: "18px", margin: "22px 0 10px" }}>Issue details</h2>
+          <h2 style={{ fontSize: "18px", margin: "22px 0 10px" }}>
+            Issue details
+          </h2>
 
           <label style={labelStyle}>Short title *</label>
-          <input name="title" required placeholder="Short title (e.g. Fix sink)" style={inputStyle} />
+          <input
+            name="title"
+            required
+            placeholder="Short title (e.g. Fix sink)"
+            style={inputStyle}
+            disabled={isSubmitting}
+          />
 
           <label style={labelStyle}>Describe the issue *</label>
           <textarea
@@ -247,6 +311,7 @@ export default function RequestPage() {
             placeholder="Describe the issue"
             rows={4}
             style={{ ...inputStyle, resize: "vertical" }}
+            disabled={isSubmitting}
           />
 
           {/* MEDIA */}
@@ -270,7 +335,15 @@ export default function RequestPage() {
           />
 
           {mediaError ? (
-            <p style={{ color: "crimson", fontSize: 13, marginTop: 8 }}>{mediaError}</p>
+            <p style={{ color: "crimson", fontSize: 13, marginTop: 8 }}>
+              {mediaError}
+            </p>
+          ) : null}
+
+          {uploadNote ? (
+            <p style={{ color: "#555", fontSize: 13, marginTop: 8 }}>
+              {uploadNote}
+            </p>
           ) : null}
 
           {previews.length ? (
@@ -309,7 +382,11 @@ export default function RequestPage() {
                       <video
                         src={p.url}
                         controls
-                        style={{ width: "100%", maxHeight: 260, borderRadius: 6 }}
+                        style={{
+                          width: "100%",
+                          maxHeight: 260,
+                          borderRadius: 6,
+                        }}
                       />
                     )}
                   </div>
@@ -330,10 +407,10 @@ export default function RequestPage() {
               marginTop: "16px",
               padding: "14px 24px",
               backgroundColor: ORANGE,
+              opacity: isSubmitting ? 0.7 : 1,
               color: "#fff",
               border: "none",
               cursor: isSubmitting ? "not-allowed" : "pointer",
-              opacity: isSubmitting ? 0.7 : 1,
               borderRadius: "6px",
               fontSize: "14px",
               fontWeight: 700,
