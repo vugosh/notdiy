@@ -96,10 +96,12 @@ const { data: created, error: insertErr } = await supabase
     phone: String(data.get("phone") ?? ""),
     address: String(data.get("address") ?? ""),
     zip: String(data.get("zip") ?? ""),
+    title: String(data.get("title") ?? ""),
     description: String(data.get("description") ?? ""),
     media_urls: [],
     status: "new",
   })
+  
   .select("id")
   .single();
 
