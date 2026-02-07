@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { supabase } from "../lib/supabaseClient";
 import {
   useMemo,
@@ -17,12 +19,10 @@ export default function RequestPage() {
   const MAX_MB = 50;
   const MAX_BYTES = MAX_MB * 1024 * 1024;
 
-  // MEDIA STATE (photo+video together)
+  // MEDIA STATE
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [mediaError, setMediaError] = useState<string>("");
-
-  // optional: submit zamanı düyməni söndürmək üçün
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   function handleMediaChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
@@ -63,7 +63,6 @@ export default function RequestPage() {
     }));
   }, [mediaFiles]);
 
-  // cleanup preview urls
   useEffect(() => {
     return () => {
       previews.forEach((p) => URL.revokeObjectURL(p.url));
@@ -73,7 +72,7 @@ export default function RequestPage() {
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (isSubmitting) return;
+    if (submitting) return;
 
     const form = e.currentTarget;
 
@@ -83,17 +82,43 @@ export default function RequestPage() {
     }
     if (mediaError) return;
 
-    const data = new FormData(form);
-
-    setIsSubmitting(true);
+    setSubmitting(true);
 
     try {
-      // 1) requestId yaradırıq (sonra storage path üçün istifadə edəcəyik)
+      const data = new FormData(form);
+
+      // 1) requestId-ni özümüz yaradırıq (uuid)
       const requestId = crypto.randomUUID();
 
-      // 2) Əvvəl request-i DB-yə yazırıq (media_urls boş)
+      // 2) Faylları Storage-a upload edirik və public URL-ləri yığırıq
+      const bucket = "request-media";
+      const uploadedUrls: string[] = [];
+
+      for (const file of mediaFiles) {
+        // təhlükəsiz filename
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const filePath = `${requestId}/${Date.now()}_${safeName}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from(bucket)
+          .upload(filePath, file, {
+            upsert: false,
+            contentType: file.type,
+          });
+
+        if (uploadErr) {
+          console.error(uploadErr);
+          alert("Upload error. Check console.");
+          return;
+        }
+
+        const { data: pub } = supabase.storage.from(bucket).getPublicUrl(filePath);
+        uploadedUrls.push(pub.publicUrl);
+      }
+
+      // 3) Sonra requests cədvəlinə insert edirik (media_urls dolu)
       const { error: insertErr } = await supabase.from("requests").insert({
-        id: requestId,
+        id: requestId, // id uuid olmalıdır
         first_name: String(data.get("firstName") ?? ""),
         last_name: String(data.get("lastName") ?? ""),
         email: String(data.get("email") ?? ""),
@@ -102,7 +127,7 @@ export default function RequestPage() {
         zip: String(data.get("zip") ?? ""),
         title: String(data.get("title") ?? ""),
         description: String(data.get("description") ?? ""),
-        media_urls: [],
+        media_urls: uploadedUrls,
         status: "new",
       });
 
@@ -112,51 +137,13 @@ export default function RequestPage() {
         return;
       }
 
-      // 3) Media faylları Storage-a upload edirik və URL-ləri yığırıq
-      const bucket = "request-media";
-      const urls: string[] = [];
-
-      for (const file of mediaFiles) {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path = `requests/${requestId}/${Date.now()}-${safeName}`;
-
-        const { error: uploadErr } = await supabase.storage
-          .from(bucket)
-          .upload(path, file, { contentType: file.type, upsert: false });
-
-        if (uploadErr) {
-          console.error(uploadErr);
-          alert("Upload error. Check console.");
-          return;
-        }
-
-        const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
-        if (pub?.publicUrl) urls.push(pub.publicUrl);
-      }
-
-      // 4) İndi DB-də media_urls-u update edirik
-      const { error: updErr } = await supabase
-        .from("requests")
-        .update({ media_urls: urls })
-        .eq("id", requestId);
-
-      if (updErr) {
-        console.error(updErr);
-        alert("Update error (media_urls). Check console.");
-        return;
-      }
-
-      // 5) Done
       alert("Request submitted successfully!");
 
       form.reset();
       setMediaFiles([]);
       setMediaError("");
-    } catch (err) {
-      console.error(err);
-      alert("Unexpected error. Check console.");
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
   }
 
@@ -191,78 +178,38 @@ export default function RequestPage() {
           Post a Repair Issue
         </h1>
         <p style={{ marginBottom: "24px", color: "#555" }}>
-          Fill out the details below. Uploading at least one photo/video is
-          required.
+          Fill out the details below. Uploading at least one photo/video is required.
         </p>
 
         <form onSubmit={handleSubmit} style={{ maxWidth: "560px" }}>
-          {/* CUSTOMER INFO */}
           <h2 style={{ fontSize: "18px", margin: "18px 0 10px" }}>
             Customer details
           </h2>
 
           <label style={labelStyle}>First name *</label>
-          <input
-            name="firstName"
-            required
-            placeholder="First name"
-            style={inputStyle}
-          />
+          <input name="firstName" required placeholder="First name" style={inputStyle} />
 
           <label style={labelStyle}>Last name *</label>
-          <input
-            name="lastName"
-            required
-            placeholder="Last name"
-            style={inputStyle}
-          />
+          <input name="lastName" required placeholder="Last name" style={inputStyle} />
 
           <label style={labelStyle}>Email *</label>
-          <input
-            name="email"
-            type="email"
-            required
-            placeholder="email@example.com"
-            style={inputStyle}
-          />
+          <input name="email" type="email" required placeholder="email@example.com" style={inputStyle} />
 
           <label style={labelStyle}>Phone number *</label>
-          <input
-            name="phone"
-            type="tel"
-            required
-            placeholder="(xxx) xxx-xxxx"
-            style={inputStyle}
-          />
+          <input name="phone" type="tel" required placeholder="(xxx) xxx-xxxx" style={inputStyle} />
 
           <label style={labelStyle}>Home address *</label>
-          <input
-            name="address"
-            required
-            placeholder="Street, City, State"
-            style={inputStyle}
-          />
+          <input name="address" required placeholder="Street, City, State" style={inputStyle} />
 
           <label style={labelStyle}>ZIP code *</label>
-          <input
-            name="zip"
-            required
-            placeholder="ZIP code"
-            style={inputStyle}
-          />
+          <input name="zip" required placeholder="ZIP code" style={inputStyle} />
 
-          {/* ISSUE INFO */}
           <h2 style={{ fontSize: "18px", margin: "22px 0 10px" }}>
             Issue details
           </h2>
 
           <label style={labelStyle}>Short title *</label>
-          <input
-            name="title"
-            required
-            placeholder="Short title (e.g. Fix sink)"
-            style={inputStyle}
-          />
+          <input name="title" required placeholder="Short title (e.g. Fix sink)" style={inputStyle} />
 
           <label style={labelStyle}>Describe the issue *</label>
           <textarea
@@ -273,7 +220,6 @@ export default function RequestPage() {
             style={{ ...inputStyle, resize: "vertical" }}
           />
 
-          {/* MEDIA */}
           <h2 style={{ fontSize: "18px", margin: "22px 0 10px" }}>
             Upload Photos and/or Videos *
           </h2>
@@ -290,7 +236,6 @@ export default function RequestPage() {
             required
             style={{ marginBottom: "8px" }}
             onChange={handleMediaChange}
-            disabled={isSubmitting}
           />
 
           {mediaError ? (
@@ -352,24 +297,23 @@ export default function RequestPage() {
             </p>
           )}
 
-          {/* SUBMIT */}
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={submitting}
             style={{
               marginTop: "16px",
               padding: "14px 24px",
               backgroundColor: ORANGE,
-              opacity: isSubmitting ? 0.7 : 1,
+              opacity: submitting ? 0.7 : 1,
               color: "#fff",
               border: "none",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
+              cursor: submitting ? "not-allowed" : "pointer",
               borderRadius: "6px",
               fontSize: "14px",
               fontWeight: 700,
             }}
           >
-            {isSubmitting ? "Submitting..." : "Submit Issue"}
+            {submitting ? "Submitting..." : "Submit Issue"}
           </button>
         </form>
       </div>
