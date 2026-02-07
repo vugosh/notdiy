@@ -1,10 +1,6 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-
 import { supabase } from "../lib/supabaseClient";
-
 import {
   useMemo,
   useState,
@@ -25,6 +21,9 @@ export default function RequestPage() {
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [mediaError, setMediaError] = useState<string>("");
 
+  // optional: submit zamanı düyməni söndürmək üçün
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   function handleMediaChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
     setMediaError("");
@@ -43,7 +42,9 @@ export default function RequestPage() {
         return;
       }
       if (f.size > MAX_BYTES) {
-        setMediaError(`Fayl çox böyükdür: ${f.name}. Maksimum ${MAX_MB}MB (hər fayl üçün).`);
+        setMediaError(
+          `Fayl çox böyükdür: ${f.name}. Maksimum ${MAX_MB}MB (hər fayl üçün).`
+        );
         e.target.value = "";
         setMediaFiles([]);
         return;
@@ -69,55 +70,94 @@ export default function RequestPage() {
     };
   }, [previews]);
 
-
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
+    if (isSubmitting) return;
+
     const form = e.currentTarget;
 
-    // Extra safety: required check (browser already checks, but ok)
     if (mediaFiles.length === 0) {
       setMediaError("You must upload at least one photo or video.");
       return;
     }
-    
     if (mediaError) return;
-
-    
 
     const data = new FormData(form);
 
-    const { error: insertErr } = await supabase
-    .from("requests")
-    .insert({
-      first_name: String(data.get("firstName") ?? ""),
-      last_name: String(data.get("lastName") ?? ""),
-      email: String(data.get("email") ?? ""),
-      phone: String(data.get("phone") ?? ""),
-      address: String(data.get("address") ?? ""),
-      zip: String(data.get("zip") ?? ""),
-      title: String(data.get("title") ?? ""),
-      description: String(data.get("description") ?? ""),
-      media_urls: [],
-      status: "new",
-    });
-  
-  if (insertErr) {
-    console.error(insertErr);
-    alert("Insert error. Check console.");
-    return;
-  }
-  
-  // artıq requestId yoxdur (çünki id oxumuruq)
-  // const requestId = created.id;
-  
+    setIsSubmitting(true);
 
-    
-    alert("Request submitted successfully!");
-    
-    form.reset();
-    setMediaFiles([]);
-    setMediaError("");
+    try {
+      // 1) requestId yaradırıq (sonra storage path üçün istifadə edəcəyik)
+      const requestId = crypto.randomUUID();
+
+      // 2) Əvvəl request-i DB-yə yazırıq (media_urls boş)
+      const { error: insertErr } = await supabase.from("requests").insert({
+        id: requestId,
+        first_name: String(data.get("firstName") ?? ""),
+        last_name: String(data.get("lastName") ?? ""),
+        email: String(data.get("email") ?? ""),
+        phone: String(data.get("phone") ?? ""),
+        address: String(data.get("address") ?? ""),
+        zip: String(data.get("zip") ?? ""),
+        title: String(data.get("title") ?? ""),
+        description: String(data.get("description") ?? ""),
+        media_urls: [],
+        status: "new",
+      });
+
+      if (insertErr) {
+        console.error(insertErr);
+        alert("Insert error. Check console.");
+        return;
+      }
+
+      // 3) Media faylları Storage-a upload edirik və URL-ləri yığırıq
+      const bucket = "request-media";
+      const urls: string[] = [];
+
+      for (const file of mediaFiles) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `requests/${requestId}/${Date.now()}-${safeName}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from(bucket)
+          .upload(path, file, { contentType: file.type, upsert: false });
+
+        if (uploadErr) {
+          console.error(uploadErr);
+          alert("Upload error. Check console.");
+          return;
+        }
+
+        const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
+        if (pub?.publicUrl) urls.push(pub.publicUrl);
+      }
+
+      // 4) İndi DB-də media_urls-u update edirik
+      const { error: updErr } = await supabase
+        .from("requests")
+        .update({ media_urls: urls })
+        .eq("id", requestId);
+
+      if (updErr) {
+        console.error(updErr);
+        alert("Update error (media_urls). Check console.");
+        return;
+      }
+
+      // 5) Done
+      alert("Request submitted successfully!");
+
+      form.reset();
+      setMediaFiles([]);
+      setMediaError("");
+    } catch (err) {
+      console.error(err);
+      alert("Unexpected error. Check console.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   const inputStyle: CSSProperties = {
@@ -151,7 +191,8 @@ export default function RequestPage() {
           Post a Repair Issue
         </h1>
         <p style={{ marginBottom: "24px", color: "#555" }}>
-          Fill out the details below. Uploading at least one photo/video is required.
+          Fill out the details below. Uploading at least one photo/video is
+          required.
         </p>
 
         <form onSubmit={handleSubmit} style={{ maxWidth: "560px" }}>
@@ -249,6 +290,7 @@ export default function RequestPage() {
             required
             style={{ marginBottom: "8px" }}
             onChange={handleMediaChange}
+            disabled={isSubmitting}
           />
 
           {mediaError ? (
@@ -313,23 +355,24 @@ export default function RequestPage() {
           {/* SUBMIT */}
           <button
             type="submit"
+            disabled={isSubmitting}
             style={{
               marginTop: "16px",
               padding: "14px 24px",
               backgroundColor: ORANGE,
+              opacity: isSubmitting ? 0.7 : 1,
               color: "#fff",
               border: "none",
-              cursor: "pointer",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
               borderRadius: "6px",
               fontSize: "14px",
               fontWeight: 700,
             }}
           >
-            Submit Issue
+            {isSubmitting ? "Submitting..." : "Submit Issue"}
           </button>
         </form>
       </div>
     </main>
   );
 }
-
