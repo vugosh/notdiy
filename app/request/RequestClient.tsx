@@ -87,31 +87,30 @@ export default function RequestPage() {
 
     const data = new FormData(form);
 
-const { data: created, error: insertErr } = await supabase
-  .from("requests")
-  .insert({
-    first_name: String(data.get("firstName") ?? ""),
-    last_name: String(data.get("lastName") ?? ""),
-    email: String(data.get("email") ?? ""),
-    phone: String(data.get("phone") ?? ""),
-    address: String(data.get("address") ?? ""),
-    zip: String(data.get("zip") ?? ""),
-    title: String(data.get("title") ?? ""),
-    description: String(data.get("description") ?? ""),
-    media_urls: [],
-    status: "new",
-  })
+    const { error: insertErr } = await supabase
+    .from("requests")
+    .insert({
+      first_name: String(data.get("firstName") ?? ""),
+      last_name: String(data.get("lastName") ?? ""),
+      email: String(data.get("email") ?? ""),
+      phone: String(data.get("phone") ?? ""),
+      address: String(data.get("address") ?? ""),
+      zip: String(data.get("zip") ?? ""),
+      title: String(data.get("title") ?? ""),
+      description: String(data.get("description") ?? ""),
+      media_urls: [],
+      status: "new",
+    });
   
-  .select("id")
-  .single();
-
-if (insertErr) {
-  console.error(insertErr);
-  alert("Insert error. Check console.");
-  return;
-}
-
-const requestId = created.id;
+  if (insertErr) {
+    console.error(insertErr);
+    alert("Insert error. Check console.");
+    return;
+  }
+  
+  // artıq requestId yoxdur (çünki id oxumuruq)
+  // const requestId = created.id;
+  
 
     
     alert("Request submitted successfully!");
