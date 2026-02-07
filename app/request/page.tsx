@@ -1,4 +1,8 @@
+
+
 "use client";
+
+import { supabase } from "../lib/supabaseClient";
 
 import {
   useMemo,
@@ -64,7 +68,8 @@ export default function RequestPage() {
     };
   }, [previews]);
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     const form = e.currentTarget;
@@ -78,18 +83,28 @@ export default function RequestPage() {
 
     const data = new FormData(form);
 
-    console.log("=== Request Submitted ===");
-    console.log("First name:", data.get("firstName"));
-    console.log("Last name:", data.get("lastName"));
-    console.log("Email:", data.get("email"));
-    console.log("Phone:", data.get("phone"));
-    console.log("Address:", data.get("address"));
-    console.log("ZIP:", data.get("zip"));
-    console.log("Title:", data.get("title"));
-    console.log("Description:", data.get("description"));
-    console.log("Media files:", mediaFiles);
-
-    alert("Submitted! (for now it only logs to console)");
+    const { error } = await supabase.from("requests").insert([
+      {
+        first_name: String(data.get("firstName") ?? ""),
+        last_name: data.get("lastName"),
+        email: data.get("email"),
+        phone: data.get("phone"),
+        address: data.get("address"),
+        zip: data.get("zip"),
+        title: data.get("title"),
+        description: data.get("description"),
+        status: "new",
+      },
+    ]);
+    
+    if (error) {
+      console.error("Supabase error:", error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
+    
+    alert("Request submitted successfully!");
+    
     form.reset();
     setMediaFiles([]);
     setMediaError("");
