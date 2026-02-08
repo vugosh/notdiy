@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
@@ -14,44 +14,77 @@ type Job = {
   created_at: string;
 };
 
+function isVideoUrl(url: string) {
+  return /\.(mp4|mov|webm|m4v|ogg)(\?|$)/i.test(url);
+}
+
 export default function RepairJobDetailPage() {
   const params = useParams();
-  const id = String(params?.id || "");
+
+  // Next.js params bəzən string | string[] ola bilir — təhlükəsiz edək
+  const id = useMemo(() => {
+    const raw = (params as any)?.id;
+    if (!raw) return "";
+    return Array.isArray(raw) ? String(raw[0]) : String(raw);
+  }, [params]);
 
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadJob() {
-      if (!id) return;
+      // id yoxdursa, “Loading”də ilişmə
+      if (!id) {
+        setJob(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
 
       const { data, error } = await supabase.rpc("get_public_job", {
         job_id: id,
       });
 
+      if (cancelled) return;
+
       if (error) {
-        console.error(error);
+        console.error("get_public_job error:", error);
+        setJob(null);
       } else {
-        setJob(data || null);
+        setJob((data as Job) || null);
       }
+
       setLoading(false);
     }
 
     loadJob();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
   if (!job) return <p style={{ padding: 24 }}>Job not found.</p>;
 
+  const postedText = job.created_at
+    ? new Date(job.created_at).toLocaleString()
+    : "";
+
   return (
     <main style={{ padding: 24, maxWidth: 900 }}>
-      <Link href="/repair-jobs" style={{ color: "#ff8c2b", fontWeight: 600 }}>
+      <Link href="/repair-jobs" style={{ color: "#ff8c2b", fontWeight: 600, textDecoration: "none" }}>
         ← Back to Repair Jobs
       </Link>
 
       <h1 style={{ fontSize: 28, marginTop: 14 }}>{job.title}</h1>
+
       <p style={{ color: "#666", marginTop: 6 }}>
-        ZIP: {job.zip} • Posted: {new Date(job.created_at).toLocaleString()}
+        ZIP: {job.zip}
+        {postedText ? ` • Posted: ${postedText}` : ""}
       </p>
 
       <p style={{ marginTop: 14, fontSize: 16 }}>{job.description}</p>
@@ -67,8 +100,7 @@ export default function RepairJobDetailPage() {
                 padding: 10,
               }}
             >
-              {/* sadə: video URL-lər də ola bilər */}
-              {url.match(/\.(mp4|mov|webm)(\?|$)/i) ? (
+              {isVideoUrl(url) ? (
                 <video
                   src={url}
                   controls
@@ -78,7 +110,12 @@ export default function RepairJobDetailPage() {
                 <img
                   src={url}
                   alt="job media"
-                  style={{ width: "100%", maxHeight: 500, objectFit: "contain", borderRadius: 6 }}
+                  style={{
+                    width: "100%",
+                    maxHeight: 500,
+                    objectFit: "contain",
+                    borderRadius: 6,
+                  }}
                 />
               )}
             </div>
