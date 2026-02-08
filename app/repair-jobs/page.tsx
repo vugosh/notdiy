@@ -14,7 +14,7 @@ type Job = {
 };
 
 function isVideoUrl(url: string) {
-  return /\.(mp4|mov|webm|m4v|ogg)$/i.test(url);
+  return /\.(mp4|mov|webm|m4v|ogg)(\?|$)/i.test(url);
 }
 
 export default function RepairJobsPage() {
@@ -65,7 +65,9 @@ export default function RepairJobsPage() {
             >
               <h2 style={{ fontSize: 18 }}>{job.title}</h2>
 
-              <p style={{ color: "#555", margin: "8px 0" }}>{job.description}</p>
+              <p style={{ color: "#555", margin: "8px 0" }}>
+                {job.description}
+              </p>
 
               <p style={{ fontSize: 13 }}>ZIP: {job.zip}</p>
 
@@ -87,8 +89,11 @@ export default function RepairJobsPage() {
                     alt="job media"
                     style={{
                       marginTop: 10,
-                      maxWidth: "100%",
+                      width: "100%",
+                      maxHeight: 320,
+                      objectFit: "contain",
                       borderRadius: 6,
+                      display: "block",
                     }}
                   />
                 )
