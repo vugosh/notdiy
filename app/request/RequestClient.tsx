@@ -155,31 +155,49 @@ export default function RequestPage() {
         uploadedUrls.push(pub.publicUrl);
       }
 
-      // 2) Insert request into DB with media_urls already filled
-      setUploadNote("Saving request...");
+     // 2) Insert request into DB with media_urls already filled
+setUploadNote("Saving request...");
 
-      const { error: insertErr } = await supabase.from("requests").insert({
-        first_name: String(data.get("firstName") ?? ""),
-        last_name: String(data.get("lastName") ?? ""),
-        email: String(data.get("email") ?? ""),
-        phone: String(data.get("phone") ?? ""),
-        address: String(data.get("address") ?? ""),
-        zip: String(data.get("zip") ?? ""),
-        title: String(data.get("title") ?? ""),
-        description: String(data.get("description") ?? ""),
-        media_urls: uploadedUrls,
-        status: "new",
-      });
+const { data: inserted, error: insertErr } = await supabase
+  .from("requests")
+  .insert({
+    first_name: String(data.get("firstName") ?? ""),
+    last_name: String(data.get("lastName") ?? ""),
+    email: String(data.get("email") ?? ""),
+    phone: String(data.get("phone") ?? ""),
+    address: String(data.get("address") ?? ""),
+    zip: String(data.get("zip") ?? ""),
+    title: String(data.get("title") ?? ""),
+    description: String(data.get("description") ?? ""),
+    media_urls: uploadedUrls,
+    status: "new",
+  })
+  .select("id")
+  .single();
 
-      if (insertErr) {
-        console.error("Insert error:", insertErr);
-        alert("Insert error. Check console.");
-        setIsSubmitting(false);
-        setUploadNote("");
-        return;
-      }
+if (insertErr) {
+  console.error("Insert error:", insertErr);
+  alert("Insert error. Check console.");
+  setIsSubmitting(false);
+  setUploadNote("");
+  return;
+}
 
-      alert("Request submitted successfully!");
+const { data: tracking, error: trackingErr } = await supabase.rpc(
+  "assign_tracking_code",
+  { p_request_id: inserted.id }
+);
+
+if (trackingErr) {
+  console.error("Tracking error:", trackingErr);
+  alert("Tracking number error. Check console.");
+  setIsSubmitting(false);
+  setUploadNote("");
+  return;
+}
+
+alert("Request submitted successfully!\nTracking number: " + tracking);
+
 
       form.reset();
       setMediaFiles([]);
