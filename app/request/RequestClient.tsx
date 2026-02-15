@@ -196,7 +196,13 @@ if (trackingErr) {
   return;
 }
 
-alert("Request submitted successfully!\nTracking number: " + tracking);
+alert(
+  "Request submitted successfully!\n\n" +
+  "Tracking number: " + tracking + "\n\n" +
+  "Your tracking number has been emailed to you.\n" +
+  "Keep it secure.\n" +
+  "Use it to check status and view handyman offers."
+);
 
 
       form.reset();
