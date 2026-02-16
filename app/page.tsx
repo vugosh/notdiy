@@ -34,9 +34,39 @@ export default function Home() {
       cursor: "pointer",
     }}
   >
+ <div style={{ display: "flex", gap: 12, justifyContent: "center", alignItems: "center" }}>
+  <a
+    href="/request"
+    style={{
+      background: "#000",
+      color: "#ff8c2b",
+      padding: "14px 24px",
+      borderRadius: 6,
+      fontWeight: 700,
+      textDecoration: "none",
+      display: "inline-block",
+    }}
+  >
     Request a Handyman
-  </button>
-</a>
+  </a>
+
+  <a
+    href="/track"
+    style={{
+      background: "#fff",
+      color: "#000",
+      padding: "14px 24px",
+      borderRadius: 6,
+      fontWeight: 700,
+      border: "1px solid #000",
+      textDecoration: "none",
+      display: "inline-block",
+    }}
+  >
+    Track your survey
+  </a>
+</div>
+
 
 
         <p style={{ marginTop: "12px", fontSize: "14px", color: "#555" }}>
