@@ -33,21 +33,7 @@ export default function Home() {
       fontSize: "20px",
       cursor: "pointer",
     }}
-  >
- <div style={{ display: "flex", gap: 12, justifyContent: "center", alignItems: "center" }}>
-  <a
-    href="/request"
-    style={{
-      background: "#000",
-      color: "#ff8c2b",
-      padding: "14px 24px",
-      borderRadius: 6,
-      fontWeight: 700,
-      textDecoration: "none",
-      display: "inline-block",
-    }}
-  >
-   <div
+  
   style={{
     display: "flex",
     gap: 12,
@@ -87,8 +73,6 @@ export default function Home() {
     Track your survey
   </a>
 </div>
-
-
 
 
         <p style={{ marginTop: "12px", fontSize: "14px", color: "#555" }}>
