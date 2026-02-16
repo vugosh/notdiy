@@ -9,14 +9,16 @@ export default function Home() {
         flexDirection: "column",
         alignItems: "center",
         fontFamily: "Arial, sans-serif",
-        padding: "120px 24px 80px", // space for fixed header
+        padding: "120px 24px 80px",
         textAlign: "center",
         gap: "80px",
       }}
     >
-      {/* HERO FIRST */}
+      {/* HERO */}
       <div style={{ maxWidth: "600px", width: "100%" }}>
-        <h1 style={{ fontSize: "48px", marginBottom: "12px" }}>notDIY</h1>
+        <h1 style={{ fontSize: "48px", marginBottom: "12px" }}>
+          notDIY
+        </h1>
 
         <p style={{ fontSize: "18px", marginBottom: "32px" }}>
           Hire a local Handyman for small repairs.
@@ -26,42 +28,53 @@ export default function Home() {
         <div
           style={{
             display: "flex",
-            gap: 12,
+            gap: 16,
             justifyContent: "center",
             alignItems: "center",
             flexWrap: "wrap",
           }}
         >
-          <a href="/request" style={{ textDecoration: "none" }}>
-            <button
-              style={{
-                padding: "15px 20px",
-                background: "#000",
-                color: "#ff4D00",
-                border: "none",
-                fontSize: "20px",
-                cursor: "pointer",
-                borderRadius: 6,
-              }}
-            >
-              Request a Handyman
-            </button>
+          <a
+            href="/request"
+            style={{
+              padding: "15px 24px",
+              background: "#000",
+              color: "#ff4D00",
+              fontSize: "20px",
+              fontWeight: 700,
+              textDecoration: "none",
+              borderRadius: 6,
+              display: "inline-block",
+            }}
+          >
+            Request a Handyman
           </a>
 
-          <a href="/track" style={{ textDecoration: "none" }}>
-            <button
-              style={{
-                padding: "15px 20px",
-                background: "#fff",
-                color: "#000",
-                border: "1px solid #000",
-                fontSize: "20px",
-                cursor: "pointer",
-                borderRadius: 6,
-              }}
-            >
-              Track your survey
-            </button>
+          <span
+            style={{
+              fontSize: "14px",
+              color: "#666",
+              fontWeight: 600,
+            }}
+          >
+            or
+          </span>
+
+          <a
+            href="/track"
+            style={{
+              padding: "15px 24px",
+              background: "#fff",
+              color: "#000",
+              border: "1px solid #000",
+              fontSize: "20px",
+              fontWeight: 700,
+              textDecoration: "none",
+              borderRadius: 6,
+              display: "inline-block",
+            }}
+          >
+            Track your survey
           </a>
         </div>
 
@@ -69,26 +82,27 @@ export default function Home() {
           Tell us what needs fixing at your home.
         </p>
 
-        {/* Request placeholder */}
         <div
           id="request"
           style={{ marginTop: "120px", scrollMarginTop: "120px" }}
-        ></div>
+        />
       </div>
 
       {/* HOW IT WORKS */}
       <section
         id="how-it-works"
         style={{
-          maxWidth: "300px",
+          maxWidth: "600px",
           width: "100%",
           padding: "30px 0",
           scrollMarginTop: "80px",
         }}
       >
-        <h2 style={{ fontSize: "32px", marginBottom: "16px" }}>How it works</h2>
+        <h2 style={{ fontSize: "32px", marginBottom: "16px" }}>
+          How it works
+        </h2>
 
-        <div style={{ display: "grid", gap: "20px", maxWidth: "600px" }}>
+        <div style={{ display: "grid", gap: "20px" }}>
           <div>
             🔧 <strong>Submit a repair request</strong>
             <p>Describe the problem and upload photos or videos.</p>
