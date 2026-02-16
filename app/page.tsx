@@ -22,58 +22,48 @@ export default function Home() {
           Hire a local Handyman for small repairs.
         </p>
 
-        {/* PRIMARY ACTION */}
-        <a href="/request" style={{ textDecoration: "none" }}>
-  <button
-    style={{
-      padding: "15px 20px",
-      background: "#000",
-      color: "#ff4D00",
-      border: "none",
-      fontSize: "20px",
-      cursor: "pointer",
-    }}
-  
-  style={{
-    display: "flex",
-    gap: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    flexWrap: "wrap",
-  }}
->
-  <a
-    href="/request"
-    style={{
-      background: "#000",
-      color: "#ff8c2b",
-      padding: "14px 24px",
-      borderRadius: 6,
-      fontWeight: 700,
-      textDecoration: "none",
-      display: "inline-block",
-    }}
-  >
-    Request a Handyman
-  </a>
+        {/* PRIMARY ACTIONS */}
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            justifyContent: "center",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <a href="/request" style={{ textDecoration: "none" }}>
+            <button
+              style={{
+                padding: "15px 20px",
+                background: "#000",
+                color: "#ff4D00",
+                border: "none",
+                fontSize: "20px",
+                cursor: "pointer",
+                borderRadius: 6,
+              }}
+            >
+              Request a Handyman
+            </button>
+          </a>
 
-  <a
-    href="/track"
-    style={{
-      background: "#fff",
-      color: "#000",
-      padding: "14px 24px",
-      borderRadius: 6,
-      fontWeight: 700,
-      border: "1px solid #000",
-      textDecoration: "none",
-      display: "inline-block",
-    }}
-  >
-    Track your survey
-  </a>
-</div>
-
+          <a href="/track" style={{ textDecoration: "none" }}>
+            <button
+              style={{
+                padding: "15px 20px",
+                background: "#fff",
+                color: "#000",
+                border: "1px solid #000",
+                fontSize: "20px",
+                cursor: "pointer",
+                borderRadius: 6,
+              }}
+            >
+              Track your survey
+            </button>
+          </a>
+        </div>
 
         <p style={{ marginTop: "12px", fontSize: "14px", color: "#555" }}>
           Tell us what needs fixing at your home.
@@ -83,9 +73,7 @@ export default function Home() {
         <div
           id="request"
           style={{ marginTop: "120px", scrollMarginTop: "120px" }}
-        >
-         
-        </div>
+        ></div>
       </div>
 
       {/* HOW IT WORKS */}
@@ -101,33 +89,31 @@ export default function Home() {
         <h2 style={{ fontSize: "32px", marginBottom: "16px" }}>How it works</h2>
 
         <div style={{ display: "grid", gap: "20px", maxWidth: "600px" }}>
-  <div>
-    🔧 <strong>Submit a repair request</strong>
-    <p>Describe the problem and upload photos or videos.</p>
-  </div>
+          <div>
+            🔧 <strong>Submit a repair request</strong>
+            <p>Describe the problem and upload photos or videos.</p>
+          </div>
 
-  <div>
-    💬 <strong>Get up to 5 local offers</strong>
-    <p>Local handymen send you their price offers.</p>
-  </div>
+          <div>
+            💬 <strong>Get up to 5 local offers</strong>
+            <p>Local handymen send you their price offers.</p>
+          </div>
 
-  <div>
-    ✅ <strong>Choose the best offer</strong>
-    <p>Select the handyman that fits your needs.</p>
-  </div>
+          <div>
+            ✅ <strong>Choose the best offer</strong>
+            <p>Select the handyman that fits your needs.</p>
+          </div>
 
-  <div>
-    🛠️ <strong>Get it fixed</strong>
-    <p>The handyman completes the repair.</p>
-  </div>
+          <div>
+            🛠️ <strong>Get it fixed</strong>
+            <p>The handyman completes the repair.</p>
+          </div>
 
-  <div>
-    💰 <strong>Pay the handyman directly</strong>
-    <p>Pay after the job is done.</p>
-  </div>
-</div>
-
-
+          <div>
+            💰 <strong>Pay the handyman directly</strong>
+            <p>Pay after the job is done.</p>
+          </div>
+        </div>
       </section>
 
       {/* BECOME A HANDYMAN */}
@@ -151,4 +137,3 @@ export default function Home() {
     </main>
   );
 }
-
