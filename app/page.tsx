@@ -47,6 +47,27 @@ export default function Home() {
       display: "inline-block",
     }}
   >
+   <div
+  style={{
+    display: "flex",
+    gap: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+  }}
+>
+  <a
+    href="/request"
+    style={{
+      background: "#000",
+      color: "#ff8c2b",
+      padding: "14px 24px",
+      borderRadius: 6,
+      fontWeight: 700,
+      textDecoration: "none",
+      display: "inline-block",
+    }}
+  >
     Request a Handyman
   </a>
 
@@ -66,6 +87,7 @@ export default function Home() {
     Track your survey
   </a>
 </div>
+
 
 
 
