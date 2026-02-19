@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function RootLayout({
   children,
 }: {
@@ -48,9 +50,10 @@ export default function RootLayout({
     <button style={menuBtn}>How it works</button>
   </a>
 
-  <a href="#become-handyman" style={{ textDecoration: "none" }}>
-    <button style={menuBtn}>Become a Handyman</button>
-  </a>
+  <Link href="/handyman/signup" style={{ textDecoration: "none" }}>
+  <button>Become a Handyman</button>
+</Link>
+
 </div>
           </nav>
         </header>
