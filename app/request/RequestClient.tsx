@@ -2,7 +2,8 @@
 
 export const dynamic = "force-dynamic";
 
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
+
 import {
   useMemo,
   useState,
