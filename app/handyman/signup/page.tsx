@@ -11,60 +11,65 @@ export default function HandymanSignupPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string>("");
 
   async function handleSignup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage("");
+    setLoading(true);
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    const user = data.user;
-    if (!user) {
-      setMessage("User yaradılmadı (signUp nəticəsi boşdur).");
-      return;
-    }
-
-    const { error: profileError } = await supabase
-      .from("handyman_profiles")
-      .insert({
-        id: user.id,
-        full_name: fullName,
-        phone,
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            phone: phone
+          }
+        }
       });
 
-    if (profileError) {
-      setMessage(profileError.message);
-      return;
-    }
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
 
-    router.push("/handyman/dashboard");
+      // Supabase email confirmation ON-dursa, user-a mail gedəcək
+      if (!data.user) {
+        setMessage("Qeydiyyat tamamlanmadı. Yenidən yoxla.");
+        return;
+      }
+
+      setMessage("Uğurlu! Email təsdiqi varsa, mailini yoxla. Login səhifəsinə yönləndirirəm...");
+      setTimeout(() => router.push("/handyman/login"), 1200);
+    } catch (err: any) {
+      setMessage(err?.message ?? "Xəta baş verdi.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <div style={{ padding: 40, maxWidth: 520 }}>
-      <h1>Become a Handyman - Signup</h1>
+    <div style={{ maxWidth: 420, margin: "40px auto", padding: 16 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Handyman Signup</h1>
 
-      <form onSubmit={handleSignup} style={{ marginTop: 16 }}>
+      <form onSubmit={handleSignup} style={{ display: "grid", gap: 10 }}>
         <input
-          placeholder="Full Name"
+          placeholder="Full name"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           required
-          style={{ display: "block", marginBottom: 10, padding: 8, width: "100%" }}
+          style={{ padding: 10 }}
         />
 
         <input
           placeholder="Phone"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          required
-          style={{ display: "block", marginBottom: 10, padding: 8, width: "100%" }}
+          style={{ padding: 10 }}
         />
 
         <input
@@ -73,23 +78,28 @@ export default function HandymanSignupPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          style={{ display: "block", marginBottom: 10, padding: 8, width: "100%" }}
+          style={{ padding: 10 }}
         />
 
         <input
           type="password"
-          placeholder="Password"
+          placeholder="Password (min 6)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          style={{ display: "block", marginBottom: 10, padding: 8, width: "100%" }}
+          minLength={6}
+          style={{ padding: 10 }}
         />
 
-        <button type="submit" style={{ padding: 10 }}>
-          Create Account
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ padding: 10, cursor: loading ? "not-allowed" : "pointer" }}
+        >
+          {loading ? "Creating..." : "Create account"}
         </button>
 
-        {message && <p style={{ marginTop: 10, color: "red" }}>{message}</p>}
+        {message && <p style={{ marginTop: 8 }}>{message}</p>}
       </form>
     </div>
   );
