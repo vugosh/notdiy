@@ -12,12 +12,10 @@ export default function HandymanSignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
 
   async function handleSignup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage("");
-    setLoading(true);
 
     // 1) Auth user yarat
     const { data, error } = await supabase.auth.signUp({
@@ -27,94 +25,76 @@ export default function HandymanSignupPage() {
 
     if (error) {
       setMessage(error.message);
-      setLoading(false);
       return;
     }
 
-    const user = data.user;
-    if (!user) {
-      setMessage("User yaradılmadı. Email confirmation aktiv ola bilər. Email-i yoxla.");
-      setLoading(false);
+    const userId = data.user?.id;
+    if (!userId) {
+      setMessage("User yaradılmadı (user id yoxdur).");
       return;
     }
 
     // 2) Profil cədvəlinə yaz
-    const { error: profileError } = await supabase.from("handyman_profiles").insert({
-      id: user.id,          // handyman_profiles.id -> auth.users.id (uuid)
-      full_name: fullName,
-      phone: phone,
-    });
+    const { error: profileError } = await supabase
+      .from("handyman_profiles")
+      .insert({
+        id: userId,
+        full_name: fullName,
+        phone: phone,
+      });
 
     if (profileError) {
       setMessage(profileError.message);
-      setLoading(false);
       return;
     }
 
-    // 3) Dashboard-a keç
     router.push("/handyman/dashboard");
-    setLoading(false);
   }
 
   return (
     <div style={{ padding: 40, maxWidth: 520 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700 }}>Become a Handyman - Signup</h1>
+      <h1>Become a Handyman - Signup</h1>
 
       <form onSubmit={handleSignup} style={{ marginTop: 20 }}>
-        <label style={{ display: "block", marginBottom: 6 }}>Full Name</label>
         <input
+          placeholder="Full Name"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           required
-          placeholder="John Smith"
-          style={{ display: "block", marginBottom: 14, padding: 10, width: "100%" }}
+          style={{ display: "block", marginBottom: 10, padding: 10, width: "100%" }}
         />
 
-        <label style={{ display: "block", marginBottom: 6 }}>Phone</label>
         <input
+          placeholder="Phone"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           required
-          placeholder="+1 215 000 0000"
-          style={{ display: "block", marginBottom: 14, padding: 10, width: "100%" }}
+          style={{ display: "block", marginBottom: 10, padding: 10, width: "100%" }}
         />
 
-        <label style={{ display: "block", marginBottom: 6 }}>Email</label>
         <input
           type="email"
+          placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          placeholder="email@example.com"
-          style={{ display: "block", marginBottom: 14, padding: 10, width: "100%" }}
+          style={{ display: "block", marginBottom: 10, padding: 10, width: "100%" }}
         />
 
-        <label style={{ display: "block", marginBottom: 6 }}>Password</label>
         <input
           type="password"
+          placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          placeholder="Minimum 6+ chars"
-          style={{ display: "block", marginBottom: 18, padding: 10, width: "100%" }}
+          style={{ display: "block", marginBottom: 10, padding: 10, width: "100%" }}
         />
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: "10px 14px",
-            cursor: loading ? "not-allowed" : "pointer",
-          }}
-        >
-          {loading ? "Creating..." : "Create Account"}
+        <button type="submit" style={{ padding: "10px 14px" }}>
+          Create Account
         </button>
 
-        {message && (
-          <p style={{ marginTop: 12, color: "red" }}>
-            {message}
-          </p>
-        )}
+        {message ? <p style={{ marginTop: 10, color: "red" }}>{message}</p> : null}
       </form>
     </div>
   );
