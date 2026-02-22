@@ -25,7 +25,7 @@ function formatDate(iso?: string | null) {
   if (!iso) return "-";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  return d.toLocaleString("en-US");
 }
 
 export default function HandymanDashboardPage() {
@@ -45,8 +45,7 @@ export default function HandymanDashboardPage() {
       setMessage("");
       setLoading(true);
 
-      const { data: sessionData, error: sessionErr } =
-        await supabase.auth.getSession();
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
 
       if (sessionErr) {
         if (!isMounted) return;
@@ -62,7 +61,7 @@ export default function HandymanDashboardPage() {
         return;
       }
 
-      // 👇 EMAIL buradan gəlir
+      // Email comes from auth user
       setEmail(user.email ?? null);
 
       const { data, error } = await supabase
@@ -96,13 +95,7 @@ export default function HandymanDashboardPage() {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 1100,
-        margin: "0 auto",
-        padding: "32px 16px",
-      }}
-    >
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 16px" }}>
       {/* Header row */}
       <div
         style={{
@@ -115,11 +108,9 @@ export default function HandymanDashboardPage() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0 }}>
-            Dashboard
-          </h1>
+          <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0 }}>Dashboard</h1>
           <p style={{ margin: "6px 0 0", color: "#444" }}>
-            İşləri izlə, yeni job-lara bax və hesabını idarə et.
+            Track your work, view new jobs, and manage your account.
           </p>
         </div>
 
@@ -138,40 +129,19 @@ export default function HandymanDashboardPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: 16, border: "1px solid #eee" }}>
-          Yüklənir...
-        </div>
+        <div style={{ padding: 16, border: "1px solid #eee" }}>Loading...</div>
       ) : (
         <>
           {message && (
-            <div
-              style={{
-                padding: 12,
-                border: "1px solid #000",
-                background: "#fff",
-                marginBottom: 14,
-              }}
-            >
+            <div style={{ padding: 12, border: "1px solid #000", background: "#fff", marginBottom: 14 }}>
               {message}
             </div>
           )}
 
           {/* Top grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.2fr 0.8fr",
-              gap: 14,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 14 }}>
             {/* Profile card */}
-            <div
-              style={{
-                border: "1px solid #eee",
-                background: "#fff",
-                padding: 18,
-              }}
-            >
+            <div style={{ border: "1px solid #eee", background: "#fff", padding: 18 }}>
               <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
                 <div
                   style={{
@@ -191,8 +161,7 @@ export default function HandymanDashboardPage() {
 
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 800 }}>
-                    Xoş gəldin
-                    {profile?.full_name ? `, ${profile.full_name}` : ""}!
+                    Welcome{profile?.full_name ? `, ${profile.full_name}` : ""}!
                   </div>
                   <div style={{ marginTop: 4, color: "#444", fontSize: 14 }}>
                     Status: <b>Active</b>
@@ -208,26 +177,13 @@ export default function HandymanDashboardPage() {
                   gap: 10,
                 }}
               >
-                <InfoBox label="Telefon" value={profile?.phone ?? "-"} />
+                <InfoBox label="Phone" value={profile?.phone ?? "-"} />
                 <InfoBox label="Email" value={email ?? "-"} />
-                <InfoBox
-                  label="Qeydiyyat tarixi"
-                  value={formatDate(profile?.created_at)}
-                />
-                <InfoBox
-                  label="Handyman ID"
-                  value={profile?.id ?? "-"}
-                />
+                <InfoBox label="Joined" value={formatDate(profile?.created_at)} />
+                <InfoBox label="Handyman ID" value={profile?.id ?? "-"} />
               </div>
 
-              <div
-                style={{
-                  marginTop: 14,
-                  display: "flex",
-                  gap: 10,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
                   disabled
                   style={{
@@ -258,16 +214,8 @@ export default function HandymanDashboardPage() {
             </div>
 
             {/* Quick Actions */}
-            <div
-              style={{
-                border: "1px solid #eee",
-                background: "#fff",
-                padding: 18,
-              }}
-            >
-              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>
-                Quick Actions
-              </div>
+            <div style={{ border: "1px solid #eee", background: "#fff", padding: 18 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>Quick Actions</div>
 
               <div style={{ display: "grid", gap: 10 }}>
                 <Link href="/jobs" style={{ textDecoration: "none" }}>
@@ -320,14 +268,7 @@ export default function HandymanDashboardPage() {
           </div>
 
           {/* Stats */}
-          <div
-            style={{
-              marginTop: 14,
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 14,
-            }}
-          >
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
             <StatBox label="Available jobs" />
             <StatBox label="My active offers" />
             <StatBox label="Completed jobs" />
