@@ -51,7 +51,7 @@ export default function RootLayout({
   </a>
 
   <Link href="/handyman/signup" style={{ textDecoration: "none" }}>
-  <button>Become a Handyman</button>
+  <button style={menuBtn}>Become a Handyman</button>
 </Link>
 
 </div>
