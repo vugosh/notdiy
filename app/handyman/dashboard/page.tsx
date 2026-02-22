@@ -18,6 +18,7 @@ export default function HandymanDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string>("");
   const [profile, setProfile] = useState<HandymanProfile | null>(null);
+  const [balanceUsd, setBalanceUsd] = useState<string>("0.00");
   const [message, setMessage] = useState<string>("");
 
   const initials = useMemo(() => {
@@ -25,7 +26,8 @@ export default function HandymanDashboardPage() {
     if (!name) return "HM";
     const parts = name.split(/\s+/).filter(Boolean);
     const a = parts[0]?.[0] ?? "H";
-    const b = parts.length > 1 ? parts[parts.length - 1]?.[0] : (parts[0]?.[1] ?? "M");
+    const b =
+      parts.length > 1 ? parts[parts.length - 1]?.[0] : parts[0]?.[1] ?? "M";
     return (a + (b ?? "")).toUpperCase();
   }, [profile?.full_name]);
 
@@ -49,7 +51,8 @@ export default function HandymanDashboardPage() {
       setLoading(true);
       setMessage("");
 
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionErr } =
+        await supabase.auth.getSession();
       if (sessionErr) {
         if (isMounted) setMessage(sessionErr.message);
         setLoading(false);
@@ -64,6 +67,7 @@ export default function HandymanDashboardPage() {
 
       if (isMounted) setEmail(user.email ?? "");
 
+      // ✅ Fetch profile
       const { data: prof, error: profErr } = await supabase
         .from("handyman_profiles")
         .select("id, full_name, phone, created_at")
@@ -74,6 +78,30 @@ export default function HandymanDashboardPage() {
         if (isMounted) setMessage(profErr.message);
       } else {
         if (isMounted) setProfile(prof ?? null);
+      }
+
+      // ✅ Fetch wallet balance (cents -> USD)
+      const { data: walletRow, error: walletErr } = await supabase
+        .from("handyman_wallets")
+        .select("balance_cents")
+        .eq("handyman_id", user.id)
+        .single();
+
+      if (walletErr) {
+        // Wallet row might not exist yet for some users; default to $0.00
+        if (
+          isMounted &&
+          walletErr.code !== "PGRST116" && // no rows returned
+          walletErr.message
+        ) {
+          // Don't block UI; show message but keep going
+          setMessage((prev) => prev || walletErr.message);
+        }
+        if (isMounted) setBalanceUsd("0.00");
+      } else {
+        const balanceCents = walletRow?.balance_cents ?? 0;
+        const usd = (balanceCents / 100).toFixed(2);
+        if (isMounted) setBalanceUsd(usd);
       }
 
       if (isMounted) setLoading(false);
@@ -129,6 +157,7 @@ export default function HandymanDashboardPage() {
           <div className="infoGrid" style={infoGrid}>
             <InfoBox label="Phone" value={profile?.phone || "—"} />
             <InfoBox label="Email" value={email || "—"} />
+            <InfoBox label="Balance" value={`$${balanceUsd}`} />
             <InfoBox label="Joined" value={joinedAt} />
             <InfoBox label="Handyman ID" value={profile?.id || "—"} mono />
           </div>
