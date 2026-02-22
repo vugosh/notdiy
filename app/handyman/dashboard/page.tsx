@@ -34,6 +34,7 @@ export default function HandymanDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string>("");
   const [profile, setProfile] = useState<HandymanProfile | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
 
   const initials = useMemo(() => getInitials(profile?.full_name), [profile?.full_name]);
 
@@ -44,7 +45,7 @@ export default function HandymanDashboardPage() {
       setMessage("");
       setLoading(true);
 
-      // 1) Session yoxla
+      // 1️⃣ Session yoxla
       const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
       if (sessionErr) {
         if (!isMounted) return;
@@ -59,7 +60,9 @@ export default function HandymanDashboardPage() {
         return;
       }
 
-      // 2) Profil çək
+      setEmail(user.email ?? null);
+
+      // 2️⃣ Profil çək
       const { data, error } = await supabase
         .from("handyman_profiles")
         .select("id, full_name, phone, created_at")
@@ -70,12 +73,6 @@ export default function HandymanDashboardPage() {
 
       if (error) {
         setMessage(error.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!data) {
-        setMessage("Profil tapılmadı (handyman_profiles-da bu user üçün row yoxdur).");
         setLoading(false);
         return;
       }
@@ -97,14 +94,7 @@ export default function HandymanDashboardPage() {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 1100,
-        margin: "0 auto",
-        padding: "32px 16px",
-      }}
-    >
-      {/* Header row */}
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 16px" }}>
       <div
         style={{
           display: "flex",
@@ -137,271 +127,66 @@ export default function HandymanDashboardPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: 16, border: "1px solid #eee", background: "#fff" }}>
-          Yüklənir...
-        </div>
+        <div style={{ padding: 16, border: "1px solid #eee" }}>Yüklənir...</div>
       ) : (
-        <>
-          {message && (
+        <div
+          style={{
+            border: "1px solid #eee",
+            background: "#fff",
+            padding: 20,
+          }}
+        >
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             <div
               style={{
-                padding: 12,
+                width: 60,
+                height: 60,
+                borderRadius: "50%",
                 border: "1px solid #000",
-                background: "#fff",
-                marginBottom: 14,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
+                fontSize: 20,
               }}
             >
-              {message}
+              {initials}
             </div>
-          )}
 
-          {/* Top grid: Profile + Actions */}
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>
+                Xoş gəldin{profile?.full_name ? `, ${profile.full_name}` : ""}!
+              </div>
+              <div style={{ marginTop: 4, color: "#444" }}>
+                Status: <b>Active</b>
+              </div>
+            </div>
+          </div>
+
           <div
             style={{
+              marginTop: 20,
               display: "grid",
-              gridTemplateColumns: "1.2fr 0.8fr",
-              gap: 14,
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
             }}
           >
-            {/* Profile card */}
-            <div
-              style={{
-                border: "1px solid #eee",
-                background: "#fff",
-                padding: 18,
-              }}
-            >
-              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                {/* Avatar */}
-                <div
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: "50%",
-                    border: "1px solid #000",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: 800,
-                    fontSize: 18,
-                    userSelect: "none",
-                  }}
-                  title="Profile avatar"
-                >
-                  {initials}
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800 }}>
-                    Xoş gəldin{profile?.full_name ? `, ${profile.full_name}` : ""}!
-                  </div>
-                  <div style={{ marginTop: 4, color: "#444", fontSize: 14 }}>
-                    Status: <b>Active</b>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 14,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                }}
-              >
-                <div style={{ padding: 12, border: "1px solid #eee" }}>
-                  <div style={{ fontSize: 12, color: "#666" }}>Telefon</div>
-                  <div style={{ fontWeight: 700 }}>{profile?.phone ?? "-"}</div>
-                </div>
-
-                <div style={{ padding: 12, border: "1px solid #eee" }}>
-                  <div style={{ fontSize: 12, color: "#666" }}>Qeydiyyat tarixi</div>
-                  <div style={{ fontWeight: 700 }}>{formatDate(profile?.created_at)}</div>
-                </div>
-
-                <div style={{ padding: 12, border: "1px solid #eee" }}>
-                  <div style={{ fontSize: 12, color: "#666" }}>Handyman ID</div>
-                  <div style={{ fontWeight: 700, wordBreak: "break-word" }}>
-                    {profile?.id ?? "-"}
-                  </div>
-                </div>
-
-                <div style={{ padding: 12, border: "1px solid #eee" }}>
-                  <div style={{ fontSize: 12, color: "#666" }}>Email</div>
-                  <div style={{ fontWeight: 700 }}>
-                    {/* Emaili auth-dan çəkirik: session user.email */}
-                    (sonra əlavə edəcəyik)
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button
-                  disabled
-                  style={{
-                    padding: "10px 14px",
-                    border: "1px solid #000",
-                    background: "#f4f4f4",
-                    cursor: "not-allowed",
-                    fontWeight: 700,
-                  }}
-                  title="Növbəti mərhələdə əlavə edəcəyik"
-                >
-                  Edit profile (soon)
-                </button>
-
-                <Link href="/jobs" style={{ textDecoration: "none" }}>
-                  <button
-                    style={{
-                      padding: "10px 14px",
-                      border: "1px solid #000",
-                      background: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                    }}
-                  >
-                    View available jobs
-                  </button>
-                </Link>
-              </div>
-            </div>
-
-            {/* Quick actions */}
-            <div
-              style={{
-                border: "1px solid #eee",
-                background: "#fff",
-                padding: 18,
-              }}
-            >
-              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>
-                Quick Actions
-              </div>
-
-              <div style={{ display: "grid", gap: 10 }}>
-                <Link href="/jobs" style={{ textDecoration: "none" }}>
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "12px 14px",
-                      border: "1px solid #000",
-                      background: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                      textAlign: "left",
-                    }}
-                  >
-                    🔎 Browse jobs
-                  </button>
-                </Link>
-
-                <button
-                  disabled
-                  style={{
-                    width: "100%",
-                    padding: "12px 14px",
-                    border: "1px solid #000",
-                    background: "#f4f4f4",
-                    cursor: "not-allowed",
-                    fontWeight: 700,
-                    textAlign: "left",
-                  }}
-                  title="Növbəti mərhələdə əlavə edəcəyik"
-                >
-                  🧾 My offers (soon)
-                </button>
-
-                <button
-                  onClick={handleLogout}
-                  style={{
-                    width: "100%",
-                    padding: "12px 14px",
-                    border: "1px solid #000",
-                    background: "#fff",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    textAlign: "left",
-                  }}
-                >
-                  🚪 Logout
-                </button>
-              </div>
-            </div>
+            <InfoBox label="Telefon" value={profile?.phone ?? "-"} />
+            <InfoBox label="Email" value={email ?? "-"} />
+            <InfoBox label="Qeydiyyat tarixi" value={formatDate(profile?.created_at)} />
+            <InfoBox label="Handyman ID" value={profile?.id ?? "-"} />
           </div>
-
-          {/* Stats */}
-          <div
-            style={{
-              marginTop: 14,
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 14,
-            }}
-          >
-            {[
-              { label: "Available jobs", value: "—" },
-              { label: "My active offers", value: "—" },
-              { label: "Completed jobs", value: "—" },
-            ].map((s) => (
-              <div
-                key={s.label}
-                style={{
-                  border: "1px solid #eee",
-                  background: "#fff",
-                  padding: 16,
-                }}
-              >
-                <div style={{ fontSize: 12, color: "#666" }}>{s.label}</div>
-                <div style={{ fontSize: 26, fontWeight: 900, marginTop: 6 }}>
-                  {s.value}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Latest jobs preview */}
-          <div
-            style={{
-              marginTop: 14,
-              border: "1px solid #eee",
-              background: "#fff",
-              padding: 18,
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontSize: 16, fontWeight: 900 }}>Latest jobs</div>
-
-              <Link href="/jobs" style={{ textDecoration: "none" }}>
-                <button
-                  style={{
-                    padding: "8px 12px",
-                    border: "1px solid #000",
-                    background: "#fff",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                  }}
-                >
-                  See all
-                </button>
-              </Link>
-            </div>
-
-            <div style={{ marginTop: 10, color: "#444" }}>
-              Hələ job siyahısı qoşulmayıb. Növbəti addımda <b>/jobs</b> səhifəsini
-              düzəldirik və burda son job-ları göstərəcəyik.
-            </div>
-          </div>
-
-          {/* Mobile responsive quick fix */}
-          <style jsx global>{`
-            @media (max-width: 820px) {
-              ._dash_grid_fix {
-                grid-template-columns: 1fr !important;
-              }
-            }
-          `}</style>
-        </>
+        </div>
       )}
+    </div>
+  );
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ padding: 14, border: "1px solid #eee" }}>
+      <div style={{ fontSize: 12, color: "#666" }}>{label}</div>
+      <div style={{ fontWeight: 700, marginTop: 4 }}>{value}</div>
     </div>
   );
 }
