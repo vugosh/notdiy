@@ -11,7 +11,7 @@ export default function HandymanLoginPage() {
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<string>("");
 
   async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -34,30 +34,8 @@ export default function HandymanLoginPage() {
         return;
       }
 
-      // ✅ Login olduqdan sonra profil sətirini yarat / yenilə (upsert)
-      // (Email confirmation ON olanda da burada artıq session var)
-      const fullName = (data.user.user_metadata?.full_name as string) ?? "";
-      const phone = (data.user.user_metadata?.phone as string) ?? "";
-
-      const { error: profileError } = await supabase
-        .from("handyman_profiles")
-        .upsert(
-          {
-            id: data.user.id,
-            full_name: fullName,
-            phone: phone,
-          },
-          { onConflict: "id" }
-        );
-
-      if (profileError) {
-        console.log("handyman_profiles upsert error:", profileError);
-        setMessage("Login oldu, amma profil tamamlanmadı. (RLS/policy yoxlanmalıdır)");
-        return;
-      }
-
-      setMessage("Uğurlu login! Yönləndirirəm...");
-      setTimeout(() => router.push("/handyman"), 800);
+      setMessage("Uğurlu! Dashboard-a yönləndirirəm...");
+      setTimeout(() => router.push("/handyman/dashboard"), 500);
     } catch (err: any) {
       setMessage(err?.message ?? "Xəta baş verdi.");
     } finally {
@@ -93,7 +71,12 @@ export default function HandymanLoginPage() {
         <button
           type="submit"
           disabled={loading}
-          style={{ padding: 10, cursor: loading ? "not-allowed" : "pointer" }}
+          style={{
+            padding: 10,
+            cursor: loading ? "not-allowed" : "pointer",
+            border: "1px solid #000",
+            background: "#fff",
+          }}
         >
           {loading ? "Logging in..." : "Login"}
         </button>
