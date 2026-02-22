@@ -18,6 +18,7 @@ export default function RootLayout({
             backgroundColor: "#fff",
             borderBottom: "1px solid #eee",
             padding: "14px 24px",
+            paddingTop: "calc(14px + env(safe-area-inset-top))",
             zIndex: 50,
           }}
         >
@@ -30,11 +31,10 @@ export default function RootLayout({
               justifyContent: "space-between",
               gap: "16px",
               flexWrap: "wrap",
-              rowGap: "10px",
             }}
           >
-            {/* LOGO */}
-            <a href="/" style={{ display: "inline-block" }}>
+            {/* LOGO (həmişə solda qalır) */}
+            <a href="/" style={{ display: "inline-block", flex: "0 0 auto" }}>
               <img
                 src="/notdiy-logo.png"
                 alt="notDIY"
@@ -46,13 +46,15 @@ export default function RootLayout({
               />
             </a>
 
-            {/* MENU BUTTONS */}
+            {/* MENU (həmişə sağa yapışır, sığmasa alt sətirə düşür) */}
             <div
               style={{
                 display: "flex",
-                gap: "10px",
+                justifyContent: "flex-end",
                 alignItems: "flex-start",
-                marginLeft: "auto",
+                gap: "10px",
+                flex: "1 1 auto",
+                minWidth: "240px",
               }}
             >
               <a
