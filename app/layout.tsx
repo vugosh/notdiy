@@ -45,15 +45,20 @@ export default function RootLayout({
 
 
             {/* MENU BUTTONS */}
-            <div style={{ display: "flex", gap: "10px" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
   <a href="#how-it-works" style={{ textDecoration: "none" }}>
     <button style={menuBtn}>How it works</button>
   </a>
 
-  <Link href="/handyman/signup" style={{ textDecoration: "none" }}>
-  <button style={menuBtn}>Become a Handyman</button>
-</Link>
+  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+    <Link href="/handyman/signup" style={{ textDecoration: "none" }}>
+      <button style={menuBtn}>Become a Handyman</button>
+    </Link>
 
+    <Link href="/handyman/login" style={{ textDecoration: "none" }}>
+      <button style={menuBtn}>Handyman Login</button>
+    </Link>
+  </div>
 </div>
           </nav>
         </header>
