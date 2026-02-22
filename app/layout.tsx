@@ -23,14 +23,15 @@ export default function RootLayout({
           }}
         >
           <nav
-            style={{
-              maxWidth: "1100px",
-              margin: "0 auto",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "18px 20px",
+    gap: "16px",
+    flexWrap: "wrap",
+  }}
+>
             {/* LOGO */}
 <a href="/" style={{ display: "inline-block" }}>
   <img
@@ -45,7 +46,15 @@ export default function RootLayout({
 
 
             {/* MENU BUTTONS */}
-            <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+            <div
+  style={{
+    display: "flex",
+    gap: "10px",
+    alignItems: "flex-start",
+    marginLeft: "auto",
+    paddingTop: "4px",
+  }}
+>
   <a href="#how-it-works" style={{ textDecoration: "none" }}>
     <button style={menuBtn}>How it works</button>
   </a>
@@ -78,6 +87,10 @@ const menuBtn = {
   border: "1px solid #000",
   background: "#fff",
   cursor: "pointer",
+  color: "#000",
+  textDecoration: "none",
+  WebkitAppearance: "none",
+  appearance: "none",
 };
 
 const ctaBtn = {
