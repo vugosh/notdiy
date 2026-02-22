@@ -8,7 +8,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body style={{ margin: 0, fontFamily: "Arial, sans-serif" }}>
-
         {/* HEADER */}
         <header
           style={{
@@ -23,66 +22,73 @@ export default function RootLayout({
           }}
         >
           <nav
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "18px 20px",
-    gap: "16px",
-    flexWrap: "wrap",
-  }}
->
+            style={{
+              maxWidth: "1100px",
+              margin: "0 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "16px",
+              flexWrap: "wrap",
+              rowGap: "10px",
+            }}
+          >
             {/* LOGO */}
-<a href="/" style={{ display: "inline-block" }}>
-  <img
-    src="/notdiy-logo.png"
-    alt="notDIY"
-    style={{
-      height: "30px",
-      cursor: "pointer",
-    }}
-  />
-</a>
-
+            <a href="/" style={{ display: "inline-block" }}>
+              <img
+                src="/notdiy-logo.png"
+                alt="notDIY"
+                style={{
+                  height: "30px",
+                  cursor: "pointer",
+                  display: "block",
+                }}
+              />
+            </a>
 
             {/* MENU BUTTONS */}
             <div
-  style={{
-    display: "flex",
-    gap: "10px",
-    alignItems: "flex-start",
-    marginLeft: "auto",
-    paddingTop: "4px",
-  }}
->
-  <a href="#how-it-works" style={{ textDecoration: "none" }}>
-    <button style={menuBtn}>How it works</button>
-  </a>
+              style={{
+                display: "flex",
+                gap: "10px",
+                alignItems: "flex-start",
+                marginLeft: "auto",
+              }}
+            >
+              <a
+                href="#how-it-works"
+                style={{ textDecoration: "none", color: "#000" }}
+              >
+                <button style={menuBtn}>How it works</button>
+              </a>
 
-  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-    <Link href="/handyman/signup" style={{ textDecoration: "none" }}>
-      <button style={menuBtn}>Become a Handyman</button>
-    </Link>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <Link
+                  href="/handyman/signup"
+                  style={{ textDecoration: "none", color: "#000" }}
+                >
+                  <button style={menuBtn}>Become a Handyman</button>
+                </Link>
 
-    <Link href="/handyman/login" style={{ textDecoration: "none" }}>
-      <button style={menuBtn}>Handyman Login</button>
-    </Link>
-  </div>
-</div>
+                <Link
+                  href="/handyman/login"
+                  style={{ textDecoration: "none", color: "#000" }}
+                >
+                  <button style={menuBtn}>Handyman Login</button>
+                </Link>
+              </div>
+            </div>
           </nav>
         </header>
 
         {/* PAGE CONTENT */}
-        <main style={{ paddingTop: "120px" }}>
-          {children}
-        </main>
-
+        <main style={{ paddingTop: "120px" }}>{children}</main>
       </body>
     </html>
   );
 }
 
-const menuBtn = {
+const menuBtn: React.CSSProperties = {
   padding: "8px 14px",
   border: "1px solid #000",
   background: "#fff",
@@ -91,9 +97,12 @@ const menuBtn = {
   textDecoration: "none",
   WebkitAppearance: "none",
   appearance: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
-const ctaBtn = {
+const ctaBtn: React.CSSProperties = {
   padding: "8px 16px",
   border: "2px solid #000",
   background: "#000",
