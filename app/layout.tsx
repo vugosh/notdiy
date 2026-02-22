@@ -33,7 +33,7 @@ export default function RootLayout({
               flexWrap: "wrap",
             }}
           >
-            {/* LOGO (həmişə solda qalır) */}
+            {/* LOGO */}
             <a href="/" style={{ display: "inline-block", flex: "0 0 auto" }}>
               <img
                 src="/notdiy-logo.png"
@@ -46,15 +46,15 @@ export default function RootLayout({
               />
             </a>
 
-            {/* MENU (həmişə sağa yapışır, sığmasa alt sətirə düşür) */}
+            {/* MENU BUTTONS (hamısı yan-yana) */}
             <div
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
-                alignItems: "flex-start",
+                alignItems: "center",
                 gap: "10px",
                 flex: "1 1 auto",
-                minWidth: "240px",
+                flexWrap: "wrap",
               }}
             >
               <a
@@ -64,21 +64,19 @@ export default function RootLayout({
                 <button style={menuBtn}>How it works</button>
               </a>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <Link
-                  href="/handyman/signup"
-                  style={{ textDecoration: "none", color: "#000" }}
-                >
-                  <button style={menuBtn}>Become a Handyman</button>
-                </Link>
+              <Link
+                href="/handyman/signup"
+                style={{ textDecoration: "none", color: "#000" }}
+              >
+                <button style={menuBtn}>Become a Handyman</button>
+              </Link>
 
-                <Link
-                  href="/handyman/login"
-                  style={{ textDecoration: "none", color: "#000" }}
-                >
-                  <button style={menuBtn}>Handyman Login</button>
-                </Link>
-              </div>
+              <Link
+                href="/handyman/login"
+                style={{ textDecoration: "none", color: "#000" }}
+              >
+                <button style={menuBtn}>Handyman Login</button>
+              </Link>
             </div>
           </nav>
         </header>
@@ -96,7 +94,6 @@ const menuBtn: React.CSSProperties = {
   background: "#fff",
   cursor: "pointer",
   color: "#000",
-  textDecoration: "none",
   WebkitAppearance: "none",
   appearance: "none",
   display: "inline-flex",
