@@ -86,9 +86,10 @@ export default function RepairJobsPage() {
       }
 
       // ✅ DÜZ: endpoint zip param gözləyir
-      const geoResp = await fetch(`/api/geocode?zip=${encodeURIComponent(zip)}`, {
-        cache: "no-store",
-      });
+      const geoResp = await fetch(
+        `/api/geocode?q=${encodeURIComponent(zip)}&zip=${encodeURIComponent(zip)}`,
+        { cache: "no-store" }
+      );
       const geoJson = await geoResp.json();
 
       if (!geoResp.ok) {
