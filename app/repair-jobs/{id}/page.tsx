@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 
 type Job = {
   id: string;
@@ -21,7 +21,6 @@ function isVideoUrl(url: string) {
 export default function RepairJobDetailPage() {
   const params = useParams();
 
-  // Next.js params bəzən string | string[] ola bilir — təhlükəsiz edək
   const id = useMemo(() => {
     const raw = (params as any)?.id;
     if (!raw) return "";
@@ -35,7 +34,6 @@ export default function RepairJobDetailPage() {
     let cancelled = false;
 
     async function loadJob() {
-      // id yoxdursa, “Loading”də ilişmə
       if (!id) {
         setJob(null);
         setLoading(false);
@@ -54,7 +52,9 @@ export default function RepairJobDetailPage() {
         console.error("get_public_job error:", error);
         setJob(null);
       } else {
-        setJob((data as Job) || null);
+        // Əgər data array gəlsə, 1-ci elementi götür (bəzi RPC-lər belə qaytarır)
+        const row = Array.isArray(data) ? data[0] : data;
+        setJob((row as Job) || null);
       }
 
       setLoading(false);
@@ -70,13 +70,14 @@ export default function RepairJobDetailPage() {
   if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
   if (!job) return <p style={{ padding: 24 }}>Job not found.</p>;
 
-  const postedText = job.created_at
-    ? new Date(job.created_at).toLocaleString()
-    : "";
+  const postedText = job.created_at ? new Date(job.created_at).toLocaleString() : "";
 
   return (
     <main style={{ padding: 24, maxWidth: 900 }}>
-      <Link href="/repair-jobs" style={{ color: "#ff8c2b", fontWeight: 600, textDecoration: "none" }}>
+      <Link
+        href="/repair-jobs"
+        style={{ color: "#ff8c2b", fontWeight: 600, textDecoration: "none" }}
+      >
         ← Back to Repair Jobs
       </Link>
 
