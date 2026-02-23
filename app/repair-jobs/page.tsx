@@ -11,13 +11,18 @@ type NearbyRequest = {
   description: string | null;
   zip: string | null;
   created_at: string | null;
-  distance_miles: number | null;
+
+  // DB/RPC bəzən distance_mile qaytarır, bəzən distance_miles — ikisini də tuturuq
+  distance_mile?: number | null;
+  distance_miles?: number | null;
 };
 
 export default function RepairJobsPage() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
+  // ⚠️ əvvəl true idi və page açılan kimi Loading-da qalırdı
+  // Daha doğru: default false
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
   const [walletUsd, setWalletUsd] = useState("0.00");
@@ -48,7 +53,6 @@ export default function RepairJobsPage() {
         return;
       }
 
-      // wallet
       const { data: walletRow, error: walletErr } = await supabase
         .from("handyman_wallets")
         .select("balance_cents")
@@ -78,16 +82,18 @@ export default function RepairJobsPage() {
       const zip = zipInput.trim();
       if (!zip) {
         setMessage("Please enter a ZIP code.");
-        setLoading(false);
         return;
       }
 
-      const geoResp = await fetch(`/api/geocode?q=${encodeURIComponent(zip)}`, { cache: "no-store" });
+      // ✅ DÜZ: endpoint zip param gözləyir
+      const geoResp = await fetch(`/api/geocode?zip=${encodeURIComponent(zip)}`, {
+        cache: "no-store",
+      });
       const geoJson = await geoResp.json();
 
       if (!geoResp.ok) {
         setMessage(geoJson?.error || "Geocode failed.");
-        setLoading(false);
+        setJobs([]);
         return;
       }
 
@@ -103,9 +109,11 @@ export default function RepairJobsPage() {
       if (error) {
         setMessage(error.message);
         setJobs([]);
-      } else {
-        setJobs((data as NearbyRequest[]) || []);
+        return;
       }
+
+      const rows = (Array.isArray(data) ? data : []) as NearbyRequest[];
+      setJobs(rows);
     } catch (e: any) {
       setMessage(e?.message || "Something went wrong.");
       setJobs([]);
@@ -121,7 +129,7 @@ export default function RepairJobsPage() {
     try {
       if (!navigator.geolocation) {
         setMessage("Geolocation is not supported in this browser.");
-        setLoading(false);
+        setJobs([]);
         return;
       }
 
@@ -146,11 +154,12 @@ export default function RepairJobsPage() {
       if (error) {
         setMessage(error.message);
         setJobs([]);
-      } else {
-        setJobs((data as NearbyRequest[]) || []);
+        return;
       }
-    } catch (e: any) {
-      // geolocation errors are ugly, keep it friendly
+
+      const rows = (Array.isArray(data) ? data : []) as NearbyRequest[];
+      setJobs(rows);
+    } catch {
       setMessage("Could not get your location. Please allow location access or use ZIP.");
       setJobs([]);
     } finally {
@@ -159,11 +168,8 @@ export default function RepairJobsPage() {
   }
 
   async function handleBrowse() {
-    if (filterMode === "gps") {
-      await fetchNearbyByGPS();
-    } else {
-      await fetchNearbyByZip();
-    }
+    if (filterMode === "gps") await fetchNearbyByGPS();
+    else await fetchNearbyByZip();
   }
 
   async function handleLogout() {
@@ -187,7 +193,8 @@ export default function RepairJobsPage() {
           </p>
 
           <div style={{ marginTop: 10, fontSize: 18 }}>
-            Wallet balance: <b>${walletUsd}</b> <span style={{ color: "#777" }}>(Top-up page coming soon)</span>
+            Wallet balance: <b>${walletUsd}</b>{" "}
+            <span style={{ color: "#777" }}>(Top-up page coming soon)</span>
           </div>
         </div>
 
@@ -240,11 +247,7 @@ export default function RepairJobsPage() {
 
         <div className="radiusRow" style={radiusRow}>
           <div style={{ fontWeight: 800 }}>Radius</div>
-          <select
-            value={radiusMiles}
-            onChange={(e) => setRadiusMiles(Number(e.target.value))}
-            style={select}
-          >
+          <select value={radiusMiles} onChange={(e) => setRadiusMiles(Number(e.target.value))} style={select}>
             <option value={5}>5 miles</option>
             <option value={10}>10 miles</option>
             <option value={15}>15 miles</option>
@@ -268,34 +271,38 @@ export default function RepairJobsPage() {
           <div style={{ color: "#666", fontSize: 18 }}>No jobs found for this area.</div>
         ) : (
           <div style={jobList}>
-            {jobs.map((j) => (
-              <div key={j.id} style={jobCard}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 14 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={jobTitle}>{j.title || "Untitled job"}</div>
-                    <div style={jobMeta}>
-                      {j.created_at ? `Posted: ${new Date(j.created_at).toLocaleString("en-US")}` : "Posted: —"}
-                      {"  •  "}
-                      {j.distance_miles != null ? `${j.distance_miles.toFixed(1)} mi` : "— mi"}
-                      {"  •  "}
-                      ZIP: {j.zip || "—"}
+            {jobs.map((j) => {
+              const dist =
+                j.distance_miles ?? j.distance_mile ?? null;
+
+              return (
+                <div key={j.id} style={jobCard}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 14 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={jobTitle}>{j.title || "Untitled job"}</div>
+                      <div style={jobMeta}>
+                        {j.created_at
+                          ? `Posted: ${new Date(j.created_at).toLocaleString("en-US")}`
+                          : "Posted: —"}
+                        {"  •  "}
+                        {dist != null ? `${Number(dist).toFixed(1)} mi` : "— mi"}
+                        {"  •  "}
+                        ZIP: {j.zip || "—"}
+                      </div>
                     </div>
+
+                    <button style={offerBtn}>Make offer ($1)</button>
                   </div>
 
-                  <button style={offerBtn}>
-                    Make offer ($1)
-                  </button>
+                  <div style={jobDesc}>{j.description || "—"}</div>
+                  <div style={jobId}>Request ID: {j.id}</div>
                 </div>
-
-                <div style={jobDesc}>{j.description || "—"}</div>
-                <div style={jobId}>Request ID: {j.id}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Responsive */}
       <style jsx>{`
         @media (max-width: 900px) {
           .filtersRow {
