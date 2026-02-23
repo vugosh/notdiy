@@ -5,14 +5,13 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
-
 type Job = {
   id: string;
   title: string;
   description: string;
   zip: string;
-  media_urls: string[];
-  created_at: string;
+  media_urls: string[] | null;
+  created_at: string | null;
 };
 
 function isVideoUrl(url: string) {
@@ -22,7 +21,7 @@ function isVideoUrl(url: string) {
 export default function RepairJobDetailPage() {
   const params = useParams();
 
-  // Next.js params bəzən string | string[] ola bilir — təhlükəsiz edək
+  // Next.js params bəzən string | string[] olur — təhlükəsiz edirik
   const id = useMemo(() => {
     const raw = (params as any)?.id;
     if (!raw) return "";
@@ -30,13 +29,12 @@ export default function RepairJobDetailPage() {
   }, [params]);
 
   const [job, setJob] = useState<Job | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadJob() {
-      // id yoxdursa, “Loading”də ilişmə
       if (!id) {
         setJob(null);
         setLoading(false);
@@ -45,20 +43,30 @@ export default function RepairJobDetailPage() {
 
       setLoading(true);
 
-      const { data, error } = await supabase.rpc("get_public_job", {
-        job_id: id,
-      });
+      try {
+        // RPC çağırırıq
+        const { data, error } = await supabase.rpc("get_public_job", {
+          job_id: id,
+        });
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      if (error) {
-        console.error("get_public_job error:", error);
-        setJob(null);
-      } else {
-        setJob((data as Job) || null);
+        if (error) {
+          console.error("get_public_job error:", error);
+          setJob(null);
+          return;
+        }
+
+        // RPC bəzən array qaytarır: [{...}] — onu tək job-a çeviririk
+        const row = Array.isArray(data) ? data[0] : data;
+
+        setJob((row as Job) || null);
+      } catch (e) {
+        console.error("loadJob unexpected error:", e);
+        if (!cancelled) setJob(null);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-
-      setLoading(false);
     }
 
     loadJob();
@@ -71,13 +79,14 @@ export default function RepairJobDetailPage() {
   if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
   if (!job) return <p style={{ padding: 24 }}>Job not found.</p>;
 
-  const postedText = job.created_at
-    ? new Date(job.created_at).toLocaleString()
-    : "";
+  const postedText = job.created_at ? new Date(job.created_at).toLocaleString() : "";
 
   return (
     <main style={{ padding: 24, maxWidth: 900 }}>
-      <Link href="/repair-jobs" style={{ color: "#ff8c2b", fontWeight: 600, textDecoration: "none" }}>
+      <Link
+        href="/repair-jobs"
+        style={{ color: "#ff8c2b", fontWeight: 600, textDecoration: "none" }}
+      >
         ← Back to Repair Jobs
       </Link>
 
