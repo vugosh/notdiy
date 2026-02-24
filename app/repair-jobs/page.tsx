@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+
+import Map, { Marker, Popup } from "react-map-gl/mapbox";
+import "mapbox-gl/dist/mapbox-gl.css";
+
 import { supabase } from "@/lib/supabaseClient";
 
 type NearbyRequest = {
@@ -12,16 +16,17 @@ type NearbyRequest = {
   zip: string | null;
   created_at: string | null;
 
-  // DB/RPC bəzən distance_mile qaytarır, bəzən distance_miles — ikisini də tuturuq
   distance_mile?: number | null;
   distance_miles?: number | null;
+
+  // ✅ public/masked coords
+  public_lat?: number | null;
+  public_lng?: number | null;
 };
 
 export default function RepairJobsPage() {
   const router = useRouter();
 
-  // ⚠️ əvvəl true idi və page açılan kimi Loading-da qalırdı
-  // Daha doğru: default false
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -33,7 +38,27 @@ export default function RepairJobsPage() {
   const [jobs, setJobs] = useState<NearbyRequest[]>([]);
   const [filterMode, setFilterMode] = useState<"zip" | "gps">("zip");
 
+  // mobil list/map
+  const [mobileTab, setMobileTab] = useState<"list" | "map">("list");
+
+  // seçilmiş job
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = useMemo(
+    () => jobs.find((j) => j.id === selectedId) || null,
+    [jobs, selectedId]
+  );
+
   const radiusLabel = useMemo(() => `${radiusMiles} mile`, [radiusMiles]);
+
+  // token (NEXT_PUBLIC_* clientdə oxunur)
+  const mapboxToken = (process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "").trim();
+  console.log("MAP TOKEN:", process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
+  // Map view
+  const [viewState, setViewState] = useState({
+    latitude: 39.9526,
+    longitude: -75.1652,
+    zoom: 11,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -41,7 +66,8 @@ export default function RepairJobsPage() {
     async function loadWallet() {
       setMessage("");
 
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionErr } =
+        await supabase.auth.getSession();
       if (sessionErr) {
         if (isMounted) setMessage(sessionErr.message);
         return;
@@ -74,6 +100,31 @@ export default function RepairJobsPage() {
     };
   }, [router]);
 
+  function setMapToFirstJob(rows: NearbyRequest[]) {
+    const first = rows.find((r) => r.public_lat != null && r.public_lng != null);
+    if (!first) return;
+
+    setViewState((v) => ({
+      ...v,
+      latitude: Number(first.public_lat),
+      longitude: Number(first.public_lng),
+      zoom: 12,
+    }));
+  }
+
+  function focusJobOnMap(job: NearbyRequest) {
+    if (job.public_lat == null || job.public_lng == null) return;
+
+    setSelectedId(job.id);
+    setMobileTab("map"); // mobil-də xəritəyə keçsin
+    setViewState((v) => ({
+      ...v,
+      latitude: Number(job.public_lat),
+      longitude: Number(job.public_lng),
+      zoom: Math.max(v.zoom, 12),
+    }));
+  }
+
   async function fetchNearbyByZip() {
     setLoading(true);
     setMessage("");
@@ -82,10 +133,11 @@ export default function RepairJobsPage() {
       const zip = zipInput.trim();
       if (!zip) {
         setMessage("Please enter a ZIP code.");
+        setJobs([]);
         return;
       }
 
-      // ✅ DÜZ: endpoint zip param gözləyir
+      // ZIP -> lat/lng
       const geoResp = await fetch(
         `/api/geocode?q=${encodeURIComponent(zip)}&zip=${encodeURIComponent(zip)}`,
         { cache: "no-store" }
@@ -100,7 +152,8 @@ export default function RepairJobsPage() {
 
       const { lat, lng } = geoJson as { lat: number; lng: number };
 
-      const { data, error } = await supabase.rpc("get_nearby_requests", {
+      // ✅ public coords qaytaran RPC
+      const { data, error } = await supabase.rpc("get_nearby_requests_public", {
         p_lat: lat,
         p_lng: lng,
         p_radius_miles: radiusMiles,
@@ -115,6 +168,8 @@ export default function RepairJobsPage() {
 
       const rows = (Array.isArray(data) ? data : []) as NearbyRequest[];
       setJobs(rows);
+      setSelectedId(null);
+      setMapToFirstJob(rows);
     } catch (e: any) {
       setMessage(e?.message || "Something went wrong.");
       setJobs([]);
@@ -145,7 +200,7 @@ export default function RepairJobsPage() {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
 
-      const { data, error } = await supabase.rpc("get_nearby_requests", {
+      const { data, error } = await supabase.rpc("get_nearby_requests_public", {
         p_lat: lat,
         p_lng: lng,
         p_radius_miles: radiusMiles,
@@ -160,8 +215,12 @@ export default function RepairJobsPage() {
 
       const rows = (Array.isArray(data) ? data : []) as NearbyRequest[];
       setJobs(rows);
+      setSelectedId(null);
+      setMapToFirstJob(rows);
     } catch {
-      setMessage("Could not get your location. Please allow location access or use ZIP.");
+      setMessage(
+        "Could not get your location. Please allow location access or use ZIP."
+      );
       setJobs([]);
     } finally {
       setLoading(false);
@@ -183,6 +242,11 @@ export default function RepairJobsPage() {
     router.push("/handyman/login");
   }
 
+  const markers = useMemo(
+    () => jobs.filter((j) => j.public_lat != null && j.public_lng != null),
+    [jobs]
+  );
+
   return (
     <div style={pageWrap}>
       <div style={topBar}>
@@ -201,9 +265,11 @@ export default function RepairJobsPage() {
 
         <div style={topBtns}>
           <Link href="/handyman/dashboard" style={{ textDecoration: "none" }}>
-            <button style={btn}>Dashboard</button>
+            <button type="button" style={btn}>
+              Dashboard
+            </button>
           </Link>
-          <button onClick={handleLogout} style={btn}>
+          <button type="button" onClick={handleLogout} style={btn}>
             Logout
           </button>
         </div>
@@ -211,7 +277,9 @@ export default function RepairJobsPage() {
 
       {/* FILTERS */}
       <div style={filterCard}>
-        <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>Find jobs near you</div>
+        <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>
+          Find jobs near you
+        </div>
 
         <div className="filtersRow" style={filtersRow}>
           <label style={radioRow}>
@@ -231,7 +299,9 @@ export default function RepairJobsPage() {
               checked={filterMode === "gps"}
               onChange={() => setFilterMode("gps")}
             />
-            <span style={{ marginLeft: 8, fontWeight: 800 }}>Use my location</span>
+            <span style={{ marginLeft: 8, fontWeight: 800 }}>
+              Use my location
+            </span>
           </label>
         </div>
 
@@ -248,60 +318,194 @@ export default function RepairJobsPage() {
 
         <div className="radiusRow" style={radiusRow}>
           <div style={{ fontWeight: 800 }}>Radius</div>
-          <select value={radiusMiles} onChange={(e) => setRadiusMiles(Number(e.target.value))} style={select}>
+          <select
+            value={radiusMiles}
+            onChange={(e) => setRadiusMiles(Number(e.target.value))}
+            style={select}
+          >
             <option value={5}>5 miles</option>
             <option value={10}>10 miles</option>
             <option value={15}>15 miles</option>
             <option value={25}>25 miles</option>
           </select>
-          <div style={{ color: "#666", fontSize: 13 }}>Showing jobs within {radiusLabel}</div>
+          <div style={{ color: "#666", fontSize: 13 }}>
+            Showing jobs within {radiusLabel}
+          </div>
         </div>
 
-        <button onClick={handleBrowse} style={btnPrimary} disabled={loading}>
+        <button
+          type="button"
+          onClick={handleBrowse}
+          style={btnPrimary}
+          disabled={loading}
+        >
           {loading ? "Loading…" : "Search jobs"}
         </button>
 
         {message && <div style={notice}>{message}</div>}
+
+        {/* mobil toggle */}
+        <div className="mobileTabs" style={mobileTabs}>
+          <button
+            type="button"
+            style={mobileTab === "list" ? tabBtnActive : tabBtn}
+            onClick={() => setMobileTab("list")}
+          >
+            List
+          </button>
+          <button
+            type="button"
+            style={mobileTab === "map" ? tabBtnActive : tabBtn}
+            onClick={() => setMobileTab("map")}
+          >
+            Map
+          </button>
+        </div>
       </div>
 
-      {/* LIST */}
-      <div style={{ marginTop: 18 }}>
-        {loading ? (
-          <div style={{ color: "#666" }}>Loading…</div>
-        ) : jobs.length === 0 ? (
-          <div style={{ color: "#666", fontSize: 18 }}>No jobs found for this area.</div>
-        ) : (
-          <div style={jobList}>
-            {jobs.map((j) => {
-              const dist =
-                j.distance_miles ?? j.distance_mile ?? null;
+      {/* SPLIT */}
+      <div style={splitWrap}>
+        {/* LEFT LIST */}
+        <div
+          className={`${mobileTab === "map" ? "hideOnMobile" : ""}`}
+          style={leftPane}
+        >
+          {loading ? (
+            <div style={{ color: "#666" }}>Loading…</div>
+          ) : jobs.length === 0 ? (
+            <div style={{ color: "#666", fontSize: 18 }}>
+              No jobs found for this area.
+            </div>
+          ) : (
+            <div style={jobList}>
+              {jobs.map((j) => {
+                const dist = j.distance_miles ?? j.distance_mile ?? null;
 
-              return (
-                <div key={j.id} style={jobCard}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 14 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={jobTitle}>{j.title || "Untitled job"}</div>
-                      <div style={jobMeta}>
-                        {j.created_at
-                          ? `Posted: ${new Date(j.created_at).toLocaleString("en-US")}`
-                          : "Posted: —"}
-                        {"  •  "}
-                        {dist != null ? `${Number(dist).toFixed(1)} mi` : "— mi"}
-                        {"  •  "}
-                        ZIP: {j.zip || "—"}
+                return (
+                  <div
+                    key={j.id}
+                    style={selectedId === j.id ? jobCardSelected : jobCard}
+                    onClick={() => focusJobOnMap(j)}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 14,
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={jobTitle}>{j.title || "Untitled job"}</div>
+                        <div style={jobMeta}>
+                          {j.created_at
+                            ? `Posted: ${new Date(j.created_at).toLocaleString(
+                                "en-US"
+                              )}`
+                            : "Posted: —"}
+                          {"  •  "}
+                          {dist != null ? `${Number(dist).toFixed(1)} mi` : "— mi"}
+                          {"  •  "}
+                          ZIP: {j.zip || "—"}
+                        </div>
                       </div>
+
+                      <button
+                        type="button"
+                        style={offerBtn}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Make offer ($1)
+                      </button>
                     </div>
 
-                    <button style={offerBtn}>Make offer ($1)</button>
+                    <div style={jobDesc}>{j.description || "—"}</div>
+                    <div style={jobId}>Request ID: {j.id}</div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-                  <div style={jobDesc}>{j.description || "—"}</div>
-                  <div style={jobId}>Request ID: {j.id}</div>
-                </div>
-              );
-            })}
+        {/* RIGHT MAP */}
+        <div
+          className={`${mobileTab === "list" ? "hideOnMobile" : ""}`}
+          style={rightPane}
+        >
+          <div style={mapCard}>
+            {!mapboxToken || !mapboxToken.startsWith("pk.") ? (
+              <div style={{ padding: 14, color: "#b00020", fontWeight: 900 }}>
+                Mapbox token missing/invalid. Set{" "}
+                <code>NEXT_PUBLIC_MAPBOX_TOKEN</code> (must start with{" "}
+                <code>pk.</code>)
+              </div>
+            ) : (
+              <Map
+                mapboxAccessToken={mapboxToken}
+                latitude={viewState.latitude}
+                longitude={viewState.longitude}
+                zoom={viewState.zoom}
+                onMove={(evt) =>
+                  setViewState({
+                    latitude: evt.viewState.latitude,
+                    longitude: evt.viewState.longitude,
+                    zoom: evt.viewState.zoom,
+                  })
+                }
+                mapStyle="mapbox://styles/mapbox/streets-v12"
+                style={{ width: "100%", height: "100%" }}
+              >
+                {markers.map((j) => (
+                  <Marker
+                    key={j.id}
+                    longitude={Number(j.public_lng)}
+                    latitude={Number(j.public_lat)}
+                    anchor="bottom"
+                    onClick={(e) => {
+                      e.originalEvent.stopPropagation();
+                      setSelectedId(j.id);
+                    }}
+                  >
+                    <div style={pinDot} />
+                  </Marker>
+                ))}
+
+                {selected &&
+                  selected.public_lat != null &&
+                  selected.public_lng != null && (
+                    <Popup
+                      longitude={Number(selected.public_lng)}
+                      latitude={Number(selected.public_lat)}
+                      closeOnClick={false}
+                      onClose={() => setSelectedId(null)}
+                      anchor="top"
+                    >
+                      <div style={{ fontSize: 13, maxWidth: 220 }}>
+                        <div style={{ fontWeight: 900 }}>
+                          {selected.title || "Untitled job"}
+                        </div>
+                        <div style={{ opacity: 0.75, marginTop: 4 }}>
+                          ZIP: {selected.zip || "—"} •{" "}
+                          {(selected.distance_miles ?? selected.distance_mile) !=
+                          null
+                            ? `${Number(
+                                selected.distance_miles ?? selected.distance_mile
+                              ).toFixed(1)} mi`
+                            : "— mi"}
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          {selected.description ? selected.description : "—"}
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+                          Exact address is hidden until accepted.
+                        </div>
+                      </div>
+                    </Popup>
+                  )}
+              </Map>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <style jsx>{`
@@ -309,6 +513,14 @@ export default function RepairJobsPage() {
           .filtersRow {
             flex-direction: column !important;
             align-items: flex-start !important;
+          }
+          .hideOnMobile {
+            display: none !important;
+          }
+        }
+        @media (min-width: 901px) {
+          .mobileTabs {
+            display: none !important;
           }
         }
       `}</style>
@@ -414,6 +626,51 @@ const notice: React.CSSProperties = {
   color: "#111",
 };
 
+const mobileTabs: React.CSSProperties = {
+  marginTop: 14,
+  display: "flex",
+  gap: 10,
+};
+
+const tabBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  border: "2px solid #000",
+  background: "#fff",
+  cursor: "pointer",
+  fontWeight: 900,
+  width: 110,
+};
+
+const tabBtnActive: React.CSSProperties = {
+  ...tabBtn,
+  background: "#000",
+  color: "#fff",
+};
+
+const splitWrap: React.CSSProperties = {
+  marginTop: 18,
+  display: "grid",
+  gridTemplateColumns: "1.15fr 0.85fr",
+  gap: 16,
+  alignItems: "start",
+};
+
+const leftPane: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const rightPane: React.CSSProperties = {
+  position: "sticky",
+  top: 130,
+};
+
+const mapCard: React.CSSProperties = {
+  border: "1px solid #e6e6e6",
+  background: "#fff",
+  height: 560,
+  overflow: "hidden",
+};
+
 const jobList: React.CSSProperties = {
   display: "grid",
   gap: 14,
@@ -423,6 +680,12 @@ const jobCard: React.CSSProperties = {
   border: "1px solid #e6e6e6",
   background: "#fff",
   padding: 16,
+  cursor: "pointer",
+};
+
+const jobCardSelected: React.CSSProperties = {
+  ...jobCard,
+  outline: "2px solid #000",
 };
 
 const jobTitle: React.CSSProperties = {
@@ -457,4 +720,12 @@ const offerBtn: React.CSSProperties = {
   cursor: "pointer",
   fontWeight: 900,
   whiteSpace: "nowrap",
+};
+
+const pinDot: React.CSSProperties = {
+  width: 12,
+  height: 12,
+  borderRadius: 999,
+  border: "2px solid #000",
+  background: "#fff",
 };

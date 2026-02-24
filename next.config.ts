@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Keep config minimal to avoid invalid experimental keys.
 };
 
 export default nextConfig;

@@ -1,3 +1,4 @@
+import "mapbox-gl/dist/mapbox-gl.css";   // ✅ Mapbox üçün əlavə etdik
 import Link from "next/link";
 
 export default function RootLayout({
@@ -46,7 +47,7 @@ export default function RootLayout({
               />
             </a>
 
-            {/* MENU BUTTONS (hamısı yan-yana) */}
+            {/* MENU BUTTONS */}
             <div
               style={{
                 display: "flex",
