@@ -127,19 +127,20 @@ export default function RepairJobsPage() {
       if (isMounted) setUserId(user.id);
 
       // 1) wallet
-      const { data: walletRow, error: walletErr } = await supabase
-        .from("handyman_wallets")
-        .select("balance_cents")
-        .eq("handyman_id", user.id)
-        .single();
+      const { data: txns, error: walletErr } = await supabase
+  .from("wallet_transactions")
+  .select("amount_cents")
+  .eq("handyman_id", user.id);
 
-      if (walletErr) {
-        if (isMounted) setMessage(walletErr.message);
-      } else {
-        const balanceCents = walletRow?.balance_cents ?? 0;
-        const usd = (balanceCents / 100).toFixed(2);
-        if (isMounted) setWalletUsd(usd);
-      }
+if (walletErr) {
+  if (isMounted) setMessage(walletErr.message);
+} else {
+  const balanceCents =
+    txns?.reduce((sum, t) => sum + (t.amount_cents || 0), 0) ?? 0;
+
+  const usd = (balanceCents / 100).toFixed(2);
+  if (isMounted) setWalletUsd(usd);
+}
 
       // 2) my offers (Variant 2)
       await loadMyOfferedRequestIds(user.id);
