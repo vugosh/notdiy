@@ -27,7 +27,7 @@ type NearbyRequest = {
 export default function RepairJobsPage() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // search jobs loading
   const [message, setMessage] = useState("");
 
   const [walletUsd, setWalletUsd] = useState("0.00");
@@ -48,11 +48,23 @@ export default function RepairJobsPage() {
     [jobs, selectedId]
   );
 
+  // auth user
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // offers state (Variant 2)
+  const [loadingOffers, setLoadingOffers] = useState(false);
+  const [offeredRequestIds, setOfferedRequestIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  // offer submit loading per job
+  const [offerLoadingId, setOfferLoadingId] = useState<string | null>(null);
+
   const radiusLabel = useMemo(() => `${radiusMiles} mile`, [radiusMiles]);
 
   // token (NEXT_PUBLIC_* clientdə oxunur)
   const mapboxToken = (process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "").trim();
-  console.log("MAP TOKEN:", process.env.NEXT_PUBLIC_MAPBOX_TOKEN);
+
   // Map view
   const [viewState, setViewState] = useState({
     latitude: 39.9526,
@@ -60,10 +72,43 @@ export default function RepairJobsPage() {
     zoom: 11,
   });
 
+  async function refreshWallet(uid: string) {
+    const { data: walletRow, error } = await supabase
+      .from("handyman_wallets")
+      .select("balance_cents")
+      .eq("handyman_id", uid)
+      .single();
+
+    if (!error) {
+      const balanceCents = walletRow?.balance_cents ?? 0;
+      setWalletUsd((balanceCents / 100).toFixed(2));
+    }
+  }
+
+  async function loadMyOfferedRequestIds(uid: string) {
+    setLoadingOffers(true);
+
+    const { data, error } = await supabase
+      .from("offers")
+      .select("request_id")
+      .eq("handyman_id", uid);
+
+    setLoadingOffers(false);
+
+    if (error) {
+      console.error("Failed to load offers", error);
+      setOfferedRequestIds(new Set());
+      return;
+    }
+
+    const ids = new Set((data ?? []).map((r: any) => r.request_id as string));
+    setOfferedRequestIds(ids);
+  }
+
   useEffect(() => {
     let isMounted = true;
 
-    async function loadWallet() {
+    async function bootstrap() {
       setMessage("");
 
       const { data: sessionData, error: sessionErr } =
@@ -79,6 +124,9 @@ export default function RepairJobsPage() {
         return;
       }
 
+      if (isMounted) setUserId(user.id);
+
+      // 1) wallet
       const { data: walletRow, error: walletErr } = await supabase
         .from("handyman_wallets")
         .select("balance_cents")
@@ -92,16 +140,22 @@ export default function RepairJobsPage() {
         const usd = (balanceCents / 100).toFixed(2);
         if (isMounted) setWalletUsd(usd);
       }
+
+      // 2) my offers (Variant 2)
+      await loadMyOfferedRequestIds(user.id);
     }
 
-    loadWallet();
+    bootstrap();
+
     return () => {
       isMounted = false;
     };
   }, [router]);
 
   function setMapToFirstJob(rows: NearbyRequest[]) {
-    const first = rows.find((r) => r.public_lat != null && r.public_lng != null);
+    const first = rows.find(
+      (r) => r.public_lat != null && r.public_lng != null
+    );
     if (!first) return;
 
     setViewState((v) => ({
@@ -139,7 +193,9 @@ export default function RepairJobsPage() {
 
       // ZIP -> lat/lng
       const geoResp = await fetch(
-        `/api/geocode?q=${encodeURIComponent(zip)}&zip=${encodeURIComponent(zip)}`,
+        `/api/geocode?q=${encodeURIComponent(zip)}&zip=${encodeURIComponent(
+          zip
+        )}`,
         { cache: "no-store" }
       );
       const geoJson = await geoResp.json();
@@ -240,6 +296,50 @@ export default function RepairJobsPage() {
       return;
     }
     router.push("/handyman/login");
+  }
+
+  async function handleMakeOffer(requestId: string) {
+    setMessage("");
+
+    if (!userId) {
+      setMessage("Please login again.");
+      return;
+    }
+
+    if (offeredRequestIds.has(requestId)) {
+      setMessage("You already sent an offer for this job.");
+      return;
+    }
+
+    // hələlik sadə message — sonra modal/textarea edərik
+    const offerMsg = "I can help with this job.";
+
+    setOfferLoadingId(requestId);
+    try {
+      const { error } = await supabase.rpc("create_offer_and_charge", {
+        p_request_id: requestId,
+        p_message: offerMsg,
+      });
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      // UI: artıq offer var kimi işarələ
+      setOfferedRequestIds((prev) => {
+        const next = new Set(prev);
+        next.add(requestId);
+        return next;
+      });
+
+      // wallet-i yenilə
+      await refreshWallet(userId);
+
+      setMessage("Offer sent ✅");
+    } finally {
+      setOfferLoadingId(null);
+    }
   }
 
   const markers = useMemo(
@@ -381,6 +481,9 @@ export default function RepairJobsPage() {
               {jobs.map((j) => {
                 const dist = j.distance_miles ?? j.distance_mile ?? null;
 
+                const alreadyOffered = offeredRequestIds.has(j.id);
+                const isSending = offerLoadingId === j.id;
+
                 return (
                   <div
                     key={j.id}
@@ -403,7 +506,9 @@ export default function RepairJobsPage() {
                               )}`
                             : "Posted: —"}
                           {"  •  "}
-                          {dist != null ? `${Number(dist).toFixed(1)} mi` : "— mi"}
+                          {dist != null
+                            ? `${Number(dist).toFixed(1)} mi`
+                            : "— mi"}
                           {"  •  "}
                           ZIP: {j.zip || "—"}
                         </div>
@@ -411,10 +516,22 @@ export default function RepairJobsPage() {
 
                       <button
                         type="button"
-                        style={offerBtn}
-                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          ...offerBtn,
+                          opacity: alreadyOffered ? 0.5 : 1,
+                          cursor: alreadyOffered ? "not-allowed" : "pointer",
+                        }}
+                        disabled={alreadyOffered || isSending || loadingOffers}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMakeOffer(j.id);
+                        }}
                       >
-                        Make offer ($1)
+                        {alreadyOffered
+                          ? "Offer already sent"
+                          : isSending
+                          ? "Sending…"
+                          : "Make offer ($1)"}
                       </button>
                     </div>
 
@@ -548,9 +665,17 @@ const topBtns: React.CSSProperties = {
   gap: 12,
 };
 
-const h1: React.CSSProperties = { margin: 0, fontSize: 56, letterSpacing: "-0.5px" };
+const h1: React.CSSProperties = {
+  margin: 0,
+  fontSize: 56,
+  letterSpacing: "-0.5px",
+};
 
-const sub: React.CSSProperties = { margin: "6px 0 0", fontSize: 18, color: "#444" };
+const sub: React.CSSProperties = {
+  margin: "6px 0 0",
+  fontSize: 18,
+  color: "#444",
+};
 
 const btn: React.CSSProperties = {
   padding: "10px 18px",
