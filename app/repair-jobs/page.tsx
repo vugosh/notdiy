@@ -72,17 +72,26 @@ export default function RepairJobsPage() {
     zoom: 11,
   });
 
-  async function refreshWallet(uid: string) {
-    const { data: walletRow, error } = await supabase
-      .from("handyman_wallets")
-      .select("balance_cents")
-      .eq("handyman_id", uid)
-      .single();
-
-    if (!error) {
-      const balanceCents = walletRow?.balance_cents ?? 0;
-      setWalletUsd((balanceCents / 100).toFixed(2));
+  // ✅ SINGLE SOURCE OF TRUTH: wallet balance only from RPC
+  async function refreshWallet() {
+    const { data: sessionData, error: sessionErr } =
+      await supabase.auth.getSession();
+    if (sessionErr) {
+      setMessage(sessionErr.message);
+      return;
     }
+
+    const user = sessionData.session?.user;
+    if (!user) return;
+
+    const { data, error } = await supabase.rpc("get_wallet_balance_cents");
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    const balanceCents = Number(data ?? 0);
+    setWalletUsd((balanceCents / 100).toFixed(2));
   }
 
   async function loadMyOfferedRequestIds(uid: string) {
@@ -126,23 +135,10 @@ export default function RepairJobsPage() {
 
       if (isMounted) setUserId(user.id);
 
-      // 1) wallet
-      const { data: txns, error: walletErr } = await supabase
-  .from("wallet_transactions")
-  .select("amount_cents")
-  .eq("handyman_id", user.id);
+      // 1) wallet (RPC -> reads from wallet_transactions sum)
+      await refreshWallet();
 
-if (walletErr) {
-  if (isMounted) setMessage(walletErr.message);
-} else {
-  const balanceCents =
-    txns?.reduce((sum, t) => sum + (t.amount_cents || 0), 0) ?? 0;
-
-  const usd = (balanceCents / 100).toFixed(2);
-  if (isMounted) setWalletUsd(usd);
-}
-
-      // 2) my offers (Variant 2)
+      // 2) my offers
       await loadMyOfferedRequestIds(user.id);
     }
 
@@ -312,10 +308,10 @@ if (walletErr) {
       return;
     }
 
-    // hələlik sadə message — sonra modal/textarea edərik
     const offerMsg = "I can help with this job.";
 
     setOfferLoadingId(requestId);
+
     try {
       const { error } = await supabase.rpc("create_offer_and_charge", {
         p_request_id: requestId,
@@ -327,15 +323,15 @@ if (walletErr) {
         return;
       }
 
-      // UI: artıq offer var kimi işarələ
+      // UI: artıq offer var kimi işarələ (düymə dərhal deaktiv olsun)
       setOfferedRequestIds((prev) => {
         const next = new Set(prev);
         next.add(requestId);
         return next;
       });
 
-      // wallet-i yenilə
-      await refreshWallet(userId);
+      // ✅ Wallet-i dərhal yenilə (RPC -> wallet_transactions SUM)
+      await refreshWallet();
 
       setMessage("Offer sent ✅");
     } finally {
