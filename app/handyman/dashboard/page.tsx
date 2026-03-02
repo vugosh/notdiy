@@ -44,6 +44,25 @@ export default function HandymanDashboardPage() {
     });
   }, [profile?.created_at]);
 
+  // ✅ NEW: wallet balance wallet_transactions-dan hesablanır (repair-jobs kimi)
+  async function loadWalletFromTxns(uid: string) {
+    const { data: txns, error } = await supabase
+      .from("wallet_transactions")
+      .select("amount_cents")
+      .eq("handyman_id", uid);
+
+    if (error) {
+      setMessage((prev) => prev || error.message);
+      setBalanceUsd("0.00");
+      return;
+    }
+
+    const balanceCents =
+      txns?.reduce((sum: number, t: any) => sum + (t.amount_cents || 0), 0) ?? 0;
+
+    setBalanceUsd((balanceCents / 100).toFixed(2));
+  }
+
   useEffect(() => {
     let isMounted = true;
 
@@ -55,7 +74,7 @@ export default function HandymanDashboardPage() {
         await supabase.auth.getSession();
       if (sessionErr) {
         if (isMounted) setMessage(sessionErr.message);
-        setLoading(false);
+        if (isMounted) setLoading(false);
         return;
       }
 
@@ -80,29 +99,8 @@ export default function HandymanDashboardPage() {
         if (isMounted) setProfile(prof ?? null);
       }
 
-      // ✅ Fetch wallet balance (cents -> USD)
-      const { data: walletRow, error: walletErr } = await supabase
-        .from("handyman_wallets")
-        .select("balance_cents")
-        .eq("handyman_id", user.id)
-        .single();
-
-      if (walletErr) {
-        // Wallet row might not exist yet for some users; default to $0.00
-        if (
-          isMounted &&
-          walletErr.code !== "PGRST116" && // no rows returned
-          walletErr.message
-        ) {
-          // Don't block UI; show message but keep going
-          setMessage((prev) => prev || walletErr.message);
-        }
-        if (isMounted) setBalanceUsd("0.00");
-      } else {
-        const balanceCents = walletRow?.balance_cents ?? 0;
-        const usd = (balanceCents / 100).toFixed(2);
-        if (isMounted) setBalanceUsd(usd);
-      }
+      // ✅ Fetch wallet balance from wallet_transactions (source of truth)
+      await loadWalletFromTxns(user.id);
 
       if (isMounted) setLoading(false);
     }
@@ -128,7 +126,9 @@ export default function HandymanDashboardPage() {
       <div style={topRow}>
         <div>
           <h1 style={h1}>Dashboard</h1>
-          <p style={sub}>Track your work, browse new jobs, and manage your account.</p>
+          <p style={sub}>
+            Track your work, browse new jobs, and manage your account.
+          </p>
         </div>
 
         <button onClick={handleLogout} style={logoutBtn}>
@@ -146,7 +146,10 @@ export default function HandymanDashboardPage() {
 
             <div style={{ minWidth: 0 }}>
               <div style={welcomeLine}>
-                Welcome, <span style={{ fontWeight: 800 }}>{profile?.full_name ?? "Handyman"}!</span>
+                Welcome,{" "}
+                <span style={{ fontWeight: 800 }}>
+                  {profile?.full_name ?? "Handyman"}!
+                </span>
               </div>
               <div style={statusLine}>
                 Status: <span style={{ fontWeight: 700 }}>Active</span>
