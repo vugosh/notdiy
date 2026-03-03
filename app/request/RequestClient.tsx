@@ -156,8 +156,25 @@ export default function RequestPage() {
         uploadedUrls.push(pub.publicUrl);
       }
 
-     // 2) Insert request into DB with media_urls already filled
-setUploadNote("Saving request...");
+     // 2) ZIP -> lat/lng (geocode)
+const zip = String(data.get("zip") ?? "").trim();
+
+const geoResp = await fetch(
+  `/api/geocode?q=${encodeURIComponent(zip)}&zip=${encodeURIComponent(zip)}`,
+  { cache: "no-store" }
+);
+
+const geoJson = await geoResp.json();
+
+if (!geoResp.ok) {
+  console.error("Geocode failed:", geoJson);
+  alert(geoJson?.error || "Could not locate this ZIP code.");
+  setIsSubmitting(false);
+  setUploadNote("");
+  return;
+}
+
+const { lat, lng } = geoJson as { lat: number; lng: number };
 
 const { data: inserted, error: insertErr } = await supabase
   .from("requests")
@@ -172,6 +189,10 @@ const { data: inserted, error: insertErr } = await supabase
     description: String(data.get("description") ?? ""),
     media_urls: uploadedUrls,
     status: "new",
+  
+    // ✅ NEW:
+    lat,
+    lng,
   })
   .select("id")
   .single();
