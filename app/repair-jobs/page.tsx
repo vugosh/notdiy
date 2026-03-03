@@ -678,7 +678,7 @@ export default function RepairJobsPage() {
         <div
         style={modalOverlay}
         onClick={() => {
-          if (submitting) return;
+          `if (submitting) return;`
           closeOfferModal();
         }}
       >
