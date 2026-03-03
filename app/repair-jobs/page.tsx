@@ -41,12 +41,24 @@ export default function RepairJobsPage() {
   // mobil list/map
   const [mobileTab, setMobileTab] = useState<"list" | "map">("list");
 
-  // seçilmiş job
+  // ✅ Xəritə/popup üçün seçilmiş job (əvvəlki kimi qalır)
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(
     () => jobs.find((j) => j.id === selectedId) || null,
     [jobs, selectedId]
   );
+
+  // ✅ Offer modal üçün ayrıca seçilmiş job (qarışmasın!)
+  const [offerModalId, setOfferModalId] = useState<string | null>(null);
+  const offerTarget = useMemo(
+    () => jobs.find((j) => j.id === offerModalId) || null,
+    [jobs, offerModalId]
+  );
+
+  // ✅ Offer modal inputları
+  const [offerPrice, setOfferPrice] = useState("");
+  const [offerMessage, setOfferMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // auth user
   const [userId, setUserId] = useState<string | null>(null);
@@ -56,9 +68,6 @@ export default function RepairJobsPage() {
   const [offeredRequestIds, setOfferedRequestIds] = useState<Set<string>>(
     new Set()
   );
-
-  // offer submit loading per job
-  const [offerLoadingId, setOfferLoadingId] = useState<string | null>(null);
 
   const radiusLabel = useMemo(() => `${radiusMiles} mile`, [radiusMiles]);
 
@@ -295,7 +304,8 @@ export default function RepairJobsPage() {
     router.push("/handyman/login");
   }
 
-  async function handleMakeOffer(requestId: string) {
+  // ✅ Modal aç
+  function openOfferModal(requestId: string) {
     setMessage("");
 
     if (!userId) {
@@ -308,14 +318,58 @@ export default function RepairJobsPage() {
       return;
     }
 
-    const offerMsg = "I can help with this job.";
+    setOfferModalId(requestId);
+    setOfferPrice("");
+    setOfferMessage("I can help with this job.");
+  }
 
-    setOfferLoadingId(requestId);
+  // ✅ Modal bağla
+  function closeOfferModal() {
+    if (submitting) return;
+    setOfferModalId(null);
+    setOfferPrice("");
+    setOfferMessage("");
+  }
+
+  // ✅ Offer göndər
+  async function handleSubmitOffer() {
+    setMessage("");
+
+    if (!userId) {
+      setMessage("Please login again.");
+      return;
+    }
+
+    if (!offerTarget) {
+      setMessage("Please select a job again.");
+      return;
+    }
+
+    if (offeredRequestIds.has(offerTarget.id)) {
+      setMessage("You already sent an offer for this job.");
+      closeOfferModal();
+      return;
+    }
+
+    const priceNumber = Number(offerPrice);
+
+    if (!priceNumber || priceNumber <= 0) {
+      setMessage("Please enter a valid price.");
+      return;
+    }
+
+    if (priceNumber > 100000) {
+      setMessage("Price seems too high. Please enter a normal amount.");
+      return;
+    }
+
+    setSubmitting(true);
 
     try {
       const { error } = await supabase.rpc("create_offer_and_charge", {
-        p_request_id: requestId,
-        p_message: offerMsg,
+        p_request_id: offerTarget.id,
+        p_message: offerMessage?.trim() || "I can help with this job.",
+        p_price_cents: Math.round(priceNumber * 100),
       });
 
       if (error) {
@@ -323,19 +377,20 @@ export default function RepairJobsPage() {
         return;
       }
 
-      // UI: artıq offer var kimi işarələ (düymə dərhal deaktiv olsun)
+      // UI: artıq offer var kimi işarələ
       setOfferedRequestIds((prev) => {
         const next = new Set(prev);
-        next.add(requestId);
+        next.add(offerTarget.id);
         return next;
       });
 
-      // ✅ Wallet-i dərhal yenilə (RPC -> wallet_transactions SUM)
+      // Wallet yenilə
       await refreshWallet();
 
       setMessage("Offer sent ✅");
+      closeOfferModal();
     } finally {
-      setOfferLoadingId(null);
+      setSubmitting(false);
     }
   }
 
@@ -479,7 +534,6 @@ export default function RepairJobsPage() {
                 const dist = j.distance_miles ?? j.distance_mile ?? null;
 
                 const alreadyOffered = offeredRequestIds.has(j.id);
-                const isSending = offerLoadingId === j.id;
 
                 return (
                   <div
@@ -518,17 +572,13 @@ export default function RepairJobsPage() {
                           opacity: alreadyOffered ? 0.5 : 1,
                           cursor: alreadyOffered ? "not-allowed" : "pointer",
                         }}
-                        disabled={alreadyOffered || isSending || loadingOffers}
+                        disabled={alreadyOffered || loadingOffers}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleMakeOffer(j.id);
+                          openOfferModal(j.id);
                         }}
                       >
-                        {alreadyOffered
-                          ? "Offer already sent"
-                          : isSending
-                          ? "Sending…"
-                          : "Make offer ($1)"}
+                        {alreadyOffered ? "Offer already sent" : "Make offer ($1)"}
                       </button>
                     </div>
 
@@ -610,7 +660,9 @@ export default function RepairJobsPage() {
                         <div style={{ marginTop: 8 }}>
                           {selected.description ? selected.description : "—"}
                         </div>
-                        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+                        <div
+                          style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}
+                        >
                           Exact address is hidden until accepted.
                         </div>
                       </div>
@@ -621,6 +673,81 @@ export default function RepairJobsPage() {
           </div>
         </div>
       </div>
+
+      {/* ✅ OFFER MODAL */}
+      {offerTarget && (
+        <div style={modalOverlay} onClick={closeOfferModal}>
+          <div
+            style={modalCard}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ fontWeight: 900, fontSize: 20 }}>Send Offer</div>
+              <button
+                type="button"
+                onClick={closeOfferModal}
+                disabled={submitting}
+                style={modalCloseBtn}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, color: "#555", fontWeight: 800 }}>
+              {offerTarget.title || "Untitled job"}
+            </div>
+
+            <div style={{ marginTop: 14, fontSize: 14, fontWeight: 900 }}>
+              Your price ($)
+            </div>
+            <input
+              type="number"
+              value={offerPrice}
+              onChange={(e) => setOfferPrice(e.target.value)}
+              placeholder="e.g. 120"
+              style={modalInput}
+              disabled={submitting}
+            />
+
+            <div style={{ marginTop: 12, fontSize: 14, fontWeight: 900 }}>
+              Message
+            </div>
+            <textarea
+              value={offerMessage}
+              onChange={(e) => setOfferMessage(e.target.value)}
+              placeholder="Write a short message…"
+              style={modalTextarea}
+              disabled={submitting}
+            />
+
+            <div style={modalActions}>
+              <button
+                type="button"
+                onClick={closeOfferModal}
+                disabled={submitting}
+                style={modalBtn}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSubmitOffer}
+                disabled={submitting}
+                style={modalBtnPrimary}
+              >
+                {submitting ? "Sending…" : "Send ($1)"}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, fontSize: 12, color: "#777" }}>
+              Sending an offer costs <b>$1</b> from your wallet.
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         @media (max-width: 900px) {
@@ -850,4 +977,76 @@ const pinDot: React.CSSProperties = {
   borderRadius: 999,
   border: "2px solid #000",
   background: "#fff",
+};
+
+/* ---------- Modal Styles ---------- */
+
+const modalOverlay: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.55)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  zIndex: 9999,
+};
+
+const modalCard: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 520,
+  background: "#fff",
+  border: "2px solid #000",
+  padding: 16,
+};
+
+const modalCloseBtn: React.CSSProperties = {
+  border: "2px solid #000",
+  background: "#fff",
+  cursor: "pointer",
+  fontWeight: 900,
+  width: 40,
+  height: 40,
+  lineHeight: "36px",
+};
+
+const modalInput: React.CSSProperties = {
+  width: "100%",
+  padding: "12px 12px",
+  border: "2px solid #000",
+  fontWeight: 800,
+  outline: "none",
+  marginTop: 6,
+};
+
+const modalTextarea: React.CSSProperties = {
+  width: "100%",
+  padding: "12px 12px",
+  border: "2px solid #000",
+  fontWeight: 700,
+  outline: "none",
+  marginTop: 6,
+  minHeight: 110,
+  resize: "vertical",
+};
+
+const modalActions: React.CSSProperties = {
+  marginTop: 14,
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
+};
+
+const modalBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  border: "2px solid #000",
+  background: "#fff",
+  cursor: "pointer",
+  fontWeight: 900,
+};
+
+const modalBtnPrimary: React.CSSProperties = {
+  ...modalBtn,
+  background: "#000",
+  color: "#fff",
 };
