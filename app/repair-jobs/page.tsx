@@ -325,7 +325,6 @@ export default function RepairJobsPage() {
 
   // ✅ Modal bağla
   function closeOfferModal() {
-    if (submitting) return;
     setOfferModalId(null);
     setOfferPrice("");
     setOfferMessage("");
@@ -334,61 +333,61 @@ export default function RepairJobsPage() {
   // ✅ Offer göndər
   async function handleSubmitOffer() {
     setMessage("");
-
+  
     if (!userId) {
       setMessage("Please login again.");
       return;
     }
-
+  
     if (!offerTarget) {
       setMessage("Please select a job again.");
       return;
     }
-
+  
     if (offeredRequestIds.has(offerTarget.id)) {
       setMessage("You already sent an offer for this job.");
       closeOfferModal();
       return;
     }
-
+  
     const priceNumber = Number(offerPrice);
-
+  
     if (!priceNumber || priceNumber <= 0) {
       setMessage("Please enter a valid price.");
       return;
     }
-
-    if (priceNumber > 100000) {
-      setMessage("Price seems too high. Please enter a normal amount.");
-      return;
-    }
-
+  
     setSubmitting(true);
-
+  
     try {
       const { error } = await supabase.rpc("create_offer_and_charge", {
         p_request_id: offerTarget.id,
-        p_message: offerMessage?.trim() || "I can help with this job.",
+        p_message: (offerMessage || "").trim() || "I can help with this job.",
         p_price_cents: Math.round(priceNumber * 100),
       });
-
+  
       if (error) {
         setMessage(error.message);
         return;
       }
-
-      // UI: artıq offer var kimi işarələ
+  
+      // 🔹 disable et
       setOfferedRequestIds((prev) => {
         const next = new Set(prev);
         next.add(offerTarget.id);
         return next;
       });
-
-      // Wallet yenilə
+  
+      // 🔹 wallet yenilə
       await refreshWallet();
-
-      setMessage("Offer sent ✅");
+  
+      // 🔹 modal bağla
       closeOfferModal();
+  
+      // 🔹 mesaj göstər
+      setMessage(
+        "Offer sent ✅ You'll be notified once the customer accepts your offer."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -676,7 +675,13 @@ export default function RepairJobsPage() {
 
       {/* ✅ OFFER MODAL */}
       {offerTarget && (
-        <div style={modalOverlay} onClick={closeOfferModal}>
+        <div
+        style={modalOverlay}
+        onClick={() => {
+          if (submitting) return;
+          closeOfferModal();
+        }}
+      >
           <div
             style={modalCard}
             onClick={(e) => {
