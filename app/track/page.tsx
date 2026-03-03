@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-
 
 type RequestRow = {
   id: string;
@@ -20,20 +19,64 @@ type RequestRow = {
   created_at: string | null;
 };
 
+type OfferRow = {
+  offer_id: string; // RPC belə qaytarmalıdır (offers.id)
+  message: string | null;
+  price_cents: number | null;
+  status: string | null; // pending/accepted/rejected
+  created_at: string | null;
+};
+
 export default function TrackPage() {
   const [email, setEmail] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [infoMsg, setInfoMsg] = useState<string>("");
+
   const [result, setResult] = useState<RequestRow | null>(null);
+
+  // offers
+  const [offers, setOffers] = useState<OfferRow[]>([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+
+  async function loadOffers(p_email: string, p_tracking_number: string) {
+    setOffersLoading(true);
+    setOffers([]);
+    setInfoMsg("");
+
+    const { data, error } = await supabase.rpc("get_offers_for_tracking", {
+      p_tracking_number,
+      p_email,
+    });
+
+    setOffersLoading(false);
+
+    if (error) {
+      console.error("get_offers_for_tracking error:", error);
+      // RPC hələ yoxdursa belə aydın görünsün
+      setInfoMsg(
+        error.message.includes("does not exist")
+          ? "Offers API is not ready yet (get_offers_for_tracking missing)."
+          : error.message
+      );
+      return;
+    }
+
+    const rows = (Array.isArray(data) ? data : []) as any[];
+    setOffers(rows as OfferRow[]);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg("");
+    setInfoMsg("");
     setResult(null);
+    setOffers([]);
 
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
     const cleanTracking = trackingNumber.trim();
 
     if (!cleanEmail || !cleanTracking) {
@@ -48,22 +91,85 @@ export default function TrackPage() {
       p_email: cleanEmail,
     });
 
+    setLoading(false);
+
     if (error) {
       console.error("Track RPC error:", error);
-      setErrorMsg("Something went wrong. Please try again.");
-      setLoading(false);
+      setErrorMsg(error.message || "Something went wrong. Please try again.");
       return;
     }
 
     if (!data) {
       setErrorMsg("No request found for this email + tracking number.");
-      setLoading(false);
       return;
     }
 
-    setResult(data as RequestRow);
-    setLoading(false);
+    const row = data as RequestRow;
+    setResult(row);
+
+    // request tapıldıqdan sonra offer-ları da çək
+    await loadOffers(cleanEmail, cleanTracking);
   }
+
+  async function acceptOffer(offerId: string) {
+    setErrorMsg("");
+    setInfoMsg("");
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanTracking = trackingNumber.trim();
+
+    if (!cleanEmail || !cleanTracking || !result) {
+      setErrorMsg("Please search your request again.");
+      return;
+    }
+
+    // artıq accepted varsa, blokla
+    if ((result.status || "").toLowerCase() === "accepted") {
+      setInfoMsg("This request is already accepted.");
+      return;
+    }
+
+    setAcceptingId(offerId);
+
+    try {
+      const { error } = await supabase.rpc("accept_offer_by_tracking", {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+        p_offer_id: offerId,
+      });
+
+      if (error) {
+        console.error("accept_offer_by_tracking error:", error);
+        setErrorMsg(
+          error.message.includes("does not exist")
+            ? "Accept API is not ready yet (accept_offer_by_tracking missing)."
+            : error.message
+        );
+        return;
+      }
+
+      setInfoMsg("Offer accepted ✅ The handyman will contact you soon.");
+
+      // yenilə (status + offers)
+      const { data: refreshed } = await supabase.rpc("get_request_by_tracking", {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      });
+      if (refreshed) setResult(refreshed as RequestRow);
+
+      await loadOffers(cleanEmail, cleanTracking);
+    } finally {
+      setAcceptingId(null);
+    }
+  }
+
+  // Əgər user result görəndə email/tracking dəyişsə — offers köhnə qalmasın
+  useEffect(() => {
+    if (!result) return;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
+
+  const isAccepted = (result?.status || "").toLowerCase() === "accepted";
 
   return (
     <main
@@ -78,7 +184,8 @@ export default function TrackPage() {
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <h1 style={{ fontSize: 44, marginBottom: 10 }}>Track your request</h1>
         <p style={{ color: "#555", marginTop: 0, marginBottom: 24 }}>
-          Enter your email and tracking number to view your repair request status and updates.
+          Enter your email and tracking number to view your repair request status
+          and handyman offers.
         </p>
 
         <form
@@ -163,6 +270,21 @@ export default function TrackPage() {
               {errorMsg}
             </div>
           ) : null}
+
+          {infoMsg ? (
+            <div
+              style={{
+                marginTop: 6,
+                padding: 12,
+                borderRadius: 8,
+                background: "#f3f7ff",
+                border: "1px solid #d6e3ff",
+                color: "#0b2a6f",
+              }}
+            >
+              {infoMsg}
+            </div>
+          ) : null}
         </form>
 
         {result ? (
@@ -175,7 +297,14 @@ export default function TrackPage() {
               background: "#fff",
             }}
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
               <h2 style={{ margin: 0, fontSize: 22 }}>Your request</h2>
               <span
                 style={{
@@ -200,8 +329,12 @@ export default function TrackPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>Description</div>
-                <div style={{ whiteSpace: "pre-wrap" }}>{result.description ?? "-"}</div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  Description
+                </div>
+                <div style={{ whiteSpace: "pre-wrap" }}>
+                  {result.description ?? "-"}
+                </div>
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
@@ -226,7 +359,91 @@ export default function TrackPage() {
               </div>
             </div>
 
-            {/* burda gələcəkdə "offers" hissəsini əlavə edəcəyik */}
+            {/* OFFERS */}
+            <div style={{ marginTop: 20 }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: 20 }}>Handyman offers</h3>
+
+              {offersLoading ? (
+                <div style={{ color: "#666" }}>Loading offers…</div>
+              ) : offers.length === 0 ? (
+                <div style={{ color: "#666" }}>
+                  No offers yet. Please check back soon.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 12 }}>
+                  {offers.map((o) => {
+                    const price =
+                      o.price_cents != null
+                        ? `$${(Number(o.price_cents) / 100).toFixed(2)}`
+                        : "—";
+
+                    const status = (o.status || "pending").toLowerCase();
+                    const isThisAccepted = status === "accepted";
+                    const disabled = isAccepted || isThisAccepted || status === "rejected";
+                    const isWorking = acceptingId === o.offer_id;
+
+                    return (
+                      <div
+                        key={o.offer_id}
+                        style={{
+                          border: "1px solid #eee",
+                          borderRadius: 10,
+                          padding: 14,
+                          background: "#fff",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            alignItems: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 18, fontWeight: 900 }}>
+                            {price}
+                          </div>
+                          <div style={{ fontSize: 13, color: "#666" }}>
+                            {status}
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>
+                          {o.message || "—"}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => acceptOffer(o.offer_id)}
+                          disabled={disabled || isWorking}
+                          style={{
+                            marginTop: 12,
+                            padding: "12px 14px",
+                            borderRadius: 8,
+                            border: "2px solid #000",
+                            background: disabled ? "#eee" : "#fff",
+                            fontWeight: 900,
+                            cursor: disabled ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {isThisAccepted
+                            ? "Accepted"
+                            : isAccepted
+                            ? "Accepted (request locked)"
+                            : isWorking
+                            ? "Accepting…"
+                            : "Accept this offer"}
+                        </button>
+
+                        <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+                          After accepting, the handyman will see your contact details.
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         ) : null}
       </div>
