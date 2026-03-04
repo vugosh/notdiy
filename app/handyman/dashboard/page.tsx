@@ -31,15 +31,19 @@ export default function HandymanDashboardPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
+
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [walletUsd, setWalletUsd] = useState("0.00");
   const [items, setItems] = useState<DashItem[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<string>("");
 
   async function refreshWallet() {
     const { data, error } = await supabase.rpc("get_wallet_balance_cents");
     if (error) {
-      console.error(error);
+      console.error("get_wallet_balance_cents error:", error);
       return;
     }
     const cents = Number(data ?? 0);
@@ -47,25 +51,26 @@ export default function HandymanDashboardPage() {
   }
 
   async function loadDashboard() {
-    setMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData.session?.user;
-    if (!user) {
-      router.push("/handyman/login");
-      return;
-    }
-
     const { data, error } = await supabase.rpc("get_handyman_dashboard_items");
-
     if (error) {
-      console.error("Dashboard RPC error:", error);
+      console.error("get_handyman_dashboard_items error:", error);
       setMessage(error.message);
       setItems([]);
       return;
     }
-
     setItems((Array.isArray(data) ? data : []) as DashItem[]);
+  }
+
+  async function refreshAll() {
+    setMessage("");
+    setRefreshing(true);
+    try {
+      await refreshWallet();
+      await loadDashboard();
+      setLastUpdated(new Date().toLocaleString());
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   useEffect(() => {
@@ -73,19 +78,81 @@ export default function HandymanDashboardPage() {
 
     async function boot() {
       if (!mounted) return;
+
       setLoading(true);
-      await refreshWallet();
-      await loadDashboard();
+      setMessage("");
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
+
+      if (!user) {
+        router.push("/handyman/login");
+        return;
+      }
+
+      setUserId(user.id);
+
+      await refreshAll();
+
       if (!mounted) return;
       setLoading(false);
     }
 
     boot();
 
+    // auth dəyişəndə də yönləndirək
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user;
+      if (!u) router.push("/handyman/login");
+      else setUserId(u.id);
+    });
+
     return () => {
       mounted = false;
+      sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [router]);
+
+  // ✅ Realtime: offer accept/reject + wallet change olduqda dashboard auto refresh
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`handyman-dashboard-${userId}`)
+      // offers insert/update/delete
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "offers",
+          filter: `handyman_id=eq.${userId}`,
+        },
+        async () => {
+          await refreshAll();
+        }
+      )
+      // wallet txns insert (balance change)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "wallet_transactions",
+          filter: `handyman_id=eq.${userId}`,
+        },
+        async () => {
+          await refreshWallet();
+          setLastUpdated(new Date().toLocaleString());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   async function handleLogout() {
     setMessage("");
@@ -95,44 +162,49 @@ export default function HandymanDashboardPage() {
   }
 
   const pending = useMemo(
-    () =>
-      items.filter((x) => (x.offer_status || "").toLowerCase() === "pending"),
+    () => items.filter((x) => (x.offer_status || "").toLowerCase() === "pending"),
     [items]
   );
   const accepted = useMemo(
-    () =>
-      items.filter((x) => (x.offer_status || "").toLowerCase() === "accepted"),
+    () => items.filter((x) => (x.offer_status || "").toLowerCase() === "accepted"),
     [items]
   );
   const rejected = useMemo(
-    () =>
-      items.filter((x) => (x.offer_status || "").toLowerCase() === "rejected"),
+    () => items.filter((x) => (x.offer_status || "").toLowerCase() === "rejected"),
     [items]
   );
-
-  function money(cents: number | null) {
-    const v = Number(cents ?? 0);
-    return `$${(v / 100).toFixed(2)}`;
-  }
 
   return (
     <div style={pageWrap}>
       <div style={topBar}>
         <div>
           <h1 style={h1}>Handyman Dashboard</h1>
+
           <div style={{ marginTop: 8, fontSize: 18 }}>
             Wallet balance: <b>${walletUsd}</b>
           </div>
+
           <div style={{ marginTop: 6, color: "#666" }}>
-            Pending: <b>{pending.length}</b> • Accepted: <b>{accepted.length}</b>{" "}
-            • Rejected: <b>{rejected.length}</b>
+            Pending: <b>{pending.length}</b> • Accepted: <b>{accepted.length}</b> • Rejected:{" "}
+            <b>{rejected.length}</b>
           </div>
+
+          {lastUpdated ? (
+            <div style={{ marginTop: 6, fontSize: 12, color: "#777" }}>
+              Last updated: {lastUpdated}
+            </div>
+          ) : null}
         </div>
 
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button style={btn} onClick={refreshAll} disabled={refreshing}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+
           <Link href="/repair-jobs" style={{ textDecoration: "none" }}>
             <button style={btn}>Find jobs</button>
           </Link>
+
           <button style={btn} onClick={handleLogout}>
             Logout
           </button>
@@ -166,7 +238,8 @@ function Section({
   return (
     <div style={card}>
       <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 12 }}>
-        {title} <span style={{ color: "#666", fontWeight: 700 }}>({items.length})</span>
+        {title}{" "}
+        <span style={{ color: "#666", fontWeight: 700 }}>({items.length})</span>
       </div>
 
       {items.length === 0 ? (
@@ -218,8 +291,7 @@ function Section({
                     Customer contact
                   </div>
                   <div>
-                    <b>Name:</b> {x.customer_first_name || "—"}{" "}
-                    {x.customer_last_name || ""}
+                    <b>Name:</b> {x.customer_first_name || "—"} {x.customer_last_name || ""}
                   </div>
                   <div>
                     <b>Phone:</b> {x.customer_phone || "—"}
@@ -261,6 +333,7 @@ const topBar: React.CSSProperties = {
   justifyContent: "space-between",
   gap: 18,
   alignItems: "flex-start",
+  flexWrap: "wrap",
 };
 
 const h1: React.CSSProperties = {
