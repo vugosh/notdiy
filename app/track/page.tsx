@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type RequestRow = {
@@ -14,7 +14,10 @@ type RequestRow = {
   title: string | null;
   description: string | null;
   media_urls: string[] | null;
-  status: string | null;
+
+  status: string | null; // pending offers / accepted (səndə belə işləyir)
+  job_status: string | null; // NEW: awaiting_offers/in_progress/waiting_customer_confirmation/completed/dispute
+
   tracking_number: string | null;
   created_at: string | null;
 };
@@ -26,6 +29,21 @@ type OfferRow = {
   status: string | null; // pending/accepted/rejected
   created_at: string | null;
 };
+
+function norm(v: string | null | undefined) {
+  return (v || "").toLowerCase().trim();
+}
+
+function jobStatusLabel(s: string | null | undefined) {
+  const v = norm(s);
+  if (!v) return "—";
+  if (v === "awaiting_offers") return "Waiting for offers";
+  if (v === "in_progress") return "In progress";
+  if (v === "waiting_customer_confirmation") return "Marked completed (confirm needed)";
+  if (v === "completed") return "Successfully completed";
+  if (v === "dispute") return "Problem reported";
+  return v;
+}
 
 export default function TrackPage() {
   const [email, setEmail] = useState("");
@@ -42,6 +60,10 @@ export default function TrackPage() {
   const [offersLoading, setOffersLoading] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
+  // completion actions
+  const [confirming, setConfirming] = useState(false);
+  const [reporting, setReporting] = useState(false);
+
   async function loadOffers(p_email: string, p_tracking_number: string) {
     setOffersLoading(true);
     setOffers([]);
@@ -56,7 +78,6 @@ export default function TrackPage() {
 
     if (error) {
       console.error("get_offers_for_tracking error:", error);
-      // RPC hələ yoxdursa belə aydın görünsün
       setInfoMsg(
         error.message.includes("does not exist")
           ? "Offers API is not ready yet (get_offers_for_tracking missing)."
@@ -67,6 +88,18 @@ export default function TrackPage() {
 
     const rows = (Array.isArray(data) ? data : []) as any[];
     setOffers(rows as OfferRow[]);
+  }
+
+  async function refreshRequest(cleanEmail: string, cleanTracking: string) {
+    const { data: refreshed, error } = await supabase.rpc("get_request_by_tracking", {
+      p_tracking_number: cleanTracking,
+      p_email: cleanEmail,
+    });
+    if (error) {
+      console.error("get_request_by_tracking refresh error:", error);
+      return;
+    }
+    if (refreshed) setResult(refreshed as RequestRow);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -107,7 +140,6 @@ export default function TrackPage() {
     const row = data as RequestRow;
     setResult(row);
 
-    // request tapıldıqdan sonra offer-ları da çək
     await loadOffers(cleanEmail, cleanTracking);
   }
 
@@ -124,7 +156,7 @@ export default function TrackPage() {
     }
 
     // artıq accepted varsa, blokla
-    if ((result.status || "").toLowerCase() === "accepted") {
+    if (norm(result.status) === "accepted") {
       setInfoMsg("This request is already accepted.");
       return;
     }
@@ -150,26 +182,99 @@ export default function TrackPage() {
 
       setInfoMsg("Offer accepted ✅ The handyman will contact you soon.");
 
-      // yenilə (status + offers)
-      const { data: refreshed } = await supabase.rpc("get_request_by_tracking", {
-        p_tracking_number: cleanTracking,
-        p_email: cleanEmail,
-      });
-      if (refreshed) setResult(refreshed as RequestRow);
-
+      await refreshRequest(cleanEmail, cleanTracking);
       await loadOffers(cleanEmail, cleanTracking);
     } finally {
       setAcceptingId(null);
     }
   }
 
-  // Əgər user result görəndə email/tracking dəyişsə — offers köhnə qalmasın
-  useEffect(() => {
-    if (!result) return;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result]);
+  async function confirmCompletion() {
+    setErrorMsg("");
+    setInfoMsg("");
 
-  const isAccepted = (result?.status || "").toLowerCase() === "accepted";
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanTracking = trackingNumber.trim();
+
+    if (!cleanEmail || !cleanTracking || !result) {
+      setErrorMsg("Please search your request again.");
+      return;
+    }
+
+    setConfirming(true);
+    try {
+      const { error } = await supabase.rpc("customer_confirm_completion_by_tracking", {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      });
+
+      if (error) {
+        const msg = error.message || "";
+        if (msg.includes("NOT_READY_TO_CONFIRM")) {
+          setErrorMsg("This job is not ready for confirmation yet.");
+          return;
+        }
+        setErrorMsg(msg);
+        return;
+      }
+
+      setInfoMsg("Thank you ✅ Marked as successfully completed.");
+      await refreshRequest(cleanEmail, cleanTracking);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  async function reportProblem() {
+    setErrorMsg("");
+    setInfoMsg("");
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanTracking = trackingNumber.trim();
+
+    if (!cleanEmail || !cleanTracking || !result) {
+      setErrorMsg("Please search your request again.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Report a problem with this job?\n\nThis will notify support and pause completion."
+    );
+    if (!ok) return;
+
+    setReporting(true);
+    try {
+      const { error } = await supabase.rpc("customer_report_problem_by_tracking", {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      });
+
+      if (error) {
+        setErrorMsg(error.message || "Could not report the problem.");
+        return;
+      }
+
+      setInfoMsg("Problem reported ✅ We'll follow up with you.");
+      await refreshRequest(cleanEmail, cleanTracking);
+    } finally {
+      setReporting(false);
+    }
+  }
+
+  const isAccepted = norm(result?.status) === "accepted";
+  const jobStatus = norm(result?.job_status);
+
+  const showConfirmBlock =
+    isAccepted && jobStatus === "waiting_customer_confirmation";
+
+  const showInProgressHint =
+    isAccepted && (jobStatus === "in_progress" || jobStatus === "");
+
+  const showCompleted =
+    isAccepted && jobStatus === "completed";
+
+  const showDispute =
+    isAccepted && jobStatus === "dispute";
 
   return (
     <main
@@ -306,6 +411,7 @@ export default function TrackPage() {
               }}
             >
               <h2 style={{ margin: 0, fontSize: 22 }}>Your request</h2>
+
               <span
                 style={{
                   padding: "6px 10px",
@@ -317,10 +423,97 @@ export default function TrackPage() {
               >
                 Status: {result.status ?? "unknown"}
               </span>
+
+              <span
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #000",
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              >
+                Job: {jobStatusLabel(result.job_status)}
+              </span>
+
               <span style={{ color: "#666", fontSize: 13 }}>
                 Tracking: <strong>{result.tracking_number}</strong>
               </span>
             </div>
+
+            {/* Job confirmation block */}
+            {showConfirmBlock ? (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: 14,
+                  borderRadius: 10,
+                  border: "1px solid #d6e3ff",
+                  background: "#f3f7ff",
+                }}
+              >
+                <div style={{ fontWeight: 900, fontSize: 16 }}>
+                  The handyman marked this job as completed.
+                </div>
+                <div style={{ marginTop: 6, color: "#0b2a6f" }}>
+                  If everything looks good, please confirm now.
+                </div>
+
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={confirmCompletion}
+                    disabled={confirming || reporting}
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 8,
+                      border: "2px solid #000",
+                      background: "#000",
+                      color: "#fff",
+                      fontWeight: 900,
+                      cursor: confirming ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {confirming ? "Confirming…" : "Confirm completion"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={reportProblem}
+                    disabled={confirming || reporting}
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 8,
+                      border: "2px solid #000",
+                      background: "#fff",
+                      color: "#000",
+                      fontWeight: 900,
+                      cursor: reporting ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {reporting ? "Reporting…" : "Report a problem"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {showInProgressHint ? (
+              <div style={{ marginTop: 14, color: "#555" }}>
+                Your job is in progress. When the handyman finishes, you’ll see a confirmation here.
+              </div>
+            ) : null}
+
+            {showCompleted ? (
+              <div style={{ marginTop: 14, color: "#0b2a6f", fontWeight: 800 }}>
+                ✅ This job is marked as successfully completed.
+              </div>
+            ) : null}
+
+            {showDispute ? (
+              <div style={{ marginTop: 14, color: "#a40000", fontWeight: 800 }}>
+                ⚠️ A problem was reported. Support will follow up.
+              </div>
+            ) : null}
 
             <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
               <div>
