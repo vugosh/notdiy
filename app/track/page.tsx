@@ -412,29 +412,7 @@ export default function TrackPage() {
             >
               <h2 style={{ margin: 0, fontSize: 22 }}>Your request</h2>
 
-              <span
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #000",
-                  fontSize: 13,
-                  fontWeight: 700,
-                }}
-              >
-                Status: {result.status ?? "unknown"}
-              </span>
-
-              <span
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #000",
-                  fontSize: 13,
-                  fontWeight: 700,
-                }}
-              >
-                Job: {jobStatusLabel(result.job_status)}
-              </span>
+              
 
               <span style={{ color: "#666", fontSize: 13 }}>
                 Tracking: <strong>{result.tracking_number}</strong>
