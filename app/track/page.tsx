@@ -15,15 +15,15 @@ type RequestRow = {
   description: string | null;
   media_urls: string[] | null;
 
-  status: string | null; // pending offers / accepted (səndə belə işləyir)
-  job_status: string | null; // NEW: awaiting_offers/in_progress/waiting_customer_confirmation/completed/dispute
+  status: string | null; // open/closed/accepted (səndə müxtəlif ola bilər)
+  job_status: string | null; // awaiting_offers / waiting_customer_confirmation / completed / dispute ...
 
   tracking_number: string | null;
   created_at: string | null;
 };
 
 type OfferRow = {
-  offer_id: string; // RPC belə qaytarmalıdır (offers.id)
+  offer_id: string; // offers.id
   message: string | null;
   price_cents: number | null;
   status: string | null; // pending/accepted/rejected
@@ -39,7 +39,8 @@ function jobStatusLabel(s: string | null | undefined) {
   if (!v) return "—";
   if (v === "awaiting_offers") return "Waiting for offers";
   if (v === "in_progress") return "In progress";
-  if (v === "waiting_customer_confirmation") return "Marked completed (confirm needed)";
+  if (v === "waiting_customer_confirmation")
+    return "Marked completed (confirm needed)";
   if (v === "completed") return "Successfully completed";
   if (v === "dispute") return "Problem reported";
   return v;
@@ -63,6 +64,12 @@ export default function TrackPage() {
   // completion actions
   const [confirming, setConfirming] = useState(false);
   const [reporting, setReporting] = useState(false);
+
+  // ✅ accepted offer var?
+  const hasAcceptedOffer = useMemo(
+    () => offers.some((o) => norm(o.status) === "accepted"),
+    [offers]
+  );
 
   async function loadOffers(p_email: string, p_tracking_number: string) {
     setOffersLoading(true);
@@ -91,10 +98,13 @@ export default function TrackPage() {
   }
 
   async function refreshRequest(cleanEmail: string, cleanTracking: string) {
-    const { data: refreshed, error } = await supabase.rpc("get_request_by_tracking", {
-      p_tracking_number: cleanTracking,
-      p_email: cleanEmail,
-    });
+    const { data: refreshed, error } = await supabase.rpc(
+      "get_request_by_tracking",
+      {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      }
+    );
     if (error) {
       console.error("get_request_by_tracking refresh error:", error);
       return;
@@ -155,9 +165,9 @@ export default function TrackPage() {
       return;
     }
 
-    // artıq accepted varsa, blokla
-    if (norm(result.status) === "accepted") {
-      setInfoMsg("This request is already accepted.");
+    // ✅ artıq accepted offer varsa, blokla (result.status closed olsa belə!)
+    if (hasAcceptedOffer) {
+      setInfoMsg("This request already has an accepted offer.");
       return;
     }
 
@@ -203,10 +213,13 @@ export default function TrackPage() {
 
     setConfirming(true);
     try {
-      const { error } = await supabase.rpc("customer_confirm_completion_by_tracking", {
-        p_tracking_number: cleanTracking,
-        p_email: cleanEmail,
-      });
+      const { error } = await supabase.rpc(
+        "customer_confirm_completion_by_tracking",
+        {
+          p_tracking_number: cleanTracking,
+          p_email: cleanEmail,
+        }
+      );
 
       if (error) {
         const msg = error.message || "";
@@ -244,10 +257,13 @@ export default function TrackPage() {
 
     setReporting(true);
     try {
-      const { error } = await supabase.rpc("customer_report_problem_by_tracking", {
-        p_tracking_number: cleanTracking,
-        p_email: cleanEmail,
-      });
+      const { error } = await supabase.rpc(
+        "customer_report_problem_by_tracking",
+        {
+          p_tracking_number: cleanTracking,
+          p_email: cleanEmail,
+        }
+      );
 
       if (error) {
         setErrorMsg(error.message || "Could not report the problem.");
@@ -261,20 +277,21 @@ export default function TrackPage() {
     }
   }
 
-  const isAccepted = norm(result?.status) === "accepted";
+  // ✅ artıq bunları offers-dan idarə edirik
   const jobStatus = norm(result?.job_status);
 
   const showConfirmBlock =
-    isAccepted && jobStatus === "waiting_customer_confirmation";
+    hasAcceptedOffer && jobStatus === "waiting_customer_confirmation";
 
+  // “in_progress” lazımsızdır demişdin — amma bu hint sadəcə məlumat kimi qalsın:
   const showInProgressHint =
-    isAccepted && (jobStatus === "in_progress" || jobStatus === "");
+    hasAcceptedOffer &&
+    (jobStatus === "" ||
+      jobStatus === "awaiting_offers" ||
+      jobStatus === "in_progress");
 
-  const showCompleted =
-    isAccepted && jobStatus === "completed";
-
-  const showDispute =
-    isAccepted && jobStatus === "dispute";
+  const showCompleted = hasAcceptedOffer && jobStatus === "completed";
+  const showDispute = hasAcceptedOffer && jobStatus === "dispute";
 
   return (
     <main
@@ -412,8 +429,6 @@ export default function TrackPage() {
             >
               <h2 style={{ margin: 0, fontSize: 22 }}>Your request</h2>
 
-              
-
               <span style={{ color: "#666", fontSize: 13 }}>
                 Tracking: <strong>{result.tracking_number}</strong>
               </span>
@@ -437,7 +452,14 @@ export default function TrackPage() {
                   If everything looks good, please confirm now.
                 </div>
 
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
                   <button
                     type="button"
                     onClick={confirmCompletion}
@@ -475,7 +497,7 @@ export default function TrackPage() {
               </div>
             ) : null}
 
-            {showInProgressHint ? (
+            {showInProgressHint && !showConfirmBlock && !showCompleted && !showDispute ? (
               <div style={{ marginTop: 14, color: "#555" }}>
                 Your job is in progress. When the handyman finishes, you’ll see a confirmation here.
               </div>
@@ -532,7 +554,9 @@ export default function TrackPage() {
 
             {/* OFFERS */}
             <div style={{ marginTop: 20 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 20 }}>Handyman offers</h3>
+              <h3 style={{ margin: "0 0 10px", fontSize: 20 }}>
+                Handyman offers
+              </h3>
 
               {offersLoading ? (
                 <div style={{ color: "#666" }}>Loading offers…</div>
@@ -548,9 +572,13 @@ export default function TrackPage() {
                         ? `$${(Number(o.price_cents) / 100).toFixed(2)}`
                         : "—";
 
-                    const status = (o.status || "pending").toLowerCase();
+                    const status = norm(o.status) || "pending";
                     const isThisAccepted = status === "accepted";
-                    const disabled = isAccepted || isThisAccepted || status === "rejected";
+
+                    // ✅ disable logic accepted offer varsa hamısını lock et
+                    const disabled =
+                      hasAcceptedOffer || isThisAccepted || status === "rejected";
+
                     const isWorking = acceptingId === o.offer_id;
 
                     return (
@@ -599,15 +627,22 @@ export default function TrackPage() {
                         >
                           {isThisAccepted
                             ? "Accepted"
-                            : isAccepted
+                            : hasAcceptedOffer
                             ? "Accepted (request locked)"
                             : isWorking
                             ? "Accepting…"
                             : "Accept this offer"}
                         </button>
 
-                        <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
-                          After accepting, the handyman will see your contact details.
+                        <div
+                          style={{
+                            marginTop: 10,
+                            fontSize: 12,
+                            color: "#666",
+                          }}
+                        >
+                          After accepting, the handyman will see your contact
+                          details.
                         </div>
                       </div>
                     );
