@@ -44,6 +44,10 @@ export default function HandymanDashboardPage() {
   const [items, setItems] = useState<DashItem[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
+  // ✅ local: hansı request “completed” mark edilib (UI disable üçün)
+  const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
+  const [markingId, setMarkingId] = useState<string | null>(null);
+
   async function refreshWallet() {
     const { data, error } = await supabase.rpc("get_wallet_balance_cents");
     if (error) {
@@ -165,7 +169,50 @@ export default function HandymanDashboardPage() {
     router.push("/handyman/login");
   }
 
-  // ✅ Pending/Accepted/Rejected bölmələri (heç nə gizlətmirik)
+  async function markAsCompleted(requestId: string) {
+    setMessage("");
+    if (!requestId) return;
+
+    setMarkingId(requestId);
+    try {
+      const { error } = await supabase.rpc("handyman_mark_completed", {
+        p_request_id: requestId,
+      });
+
+      if (error) {
+        const msg = (error.message || "").toUpperCase();
+
+        if (msg.includes("NOT_IN_PROGRESS")) {
+          setMessage("This job is not in progress (already marked or completed).");
+        } else if (msg.includes("NOT_ALLOWED")) {
+          setMessage("You are not allowed to update this job.");
+        } else if (msg.includes("NOT_AUTHENTICATED")) {
+          setMessage("Please login again.");
+          router.push("/handyman/login");
+        } else if (error.message.includes("does not exist")) {
+          setMessage("RPC missing: handyman_mark_completed is not created yet in Supabase.");
+        } else {
+          setMessage(error.message);
+        }
+        return;
+      }
+
+      // ✅ UI disable et
+      setMarkedCompletedIds((prev) => {
+        const next = new Set(prev);
+        next.add(requestId);
+        return next;
+      });
+
+      setMessage("Marked completed ✅ Please ask the customer to confirm now (on their tracking page).");
+
+      // refresh list (istəsən qalmasın, amma yaxşıdır)
+      await refreshAll();
+    } finally {
+      setMarkingId(null);
+    }
+  }
+
   const pending = useMemo(
     () => items.filter((x) => norm(x.offer_status) === "pending"),
     [items]
@@ -222,7 +269,14 @@ export default function HandymanDashboardPage() {
         <div style={{ marginTop: 18, color: "#666" }}>Loading…</div>
       ) : (
         <div style={{ marginTop: 18, display: "grid", gap: 18 }}>
-          <Section title="Accepted jobs (contact unlocked)" items={accepted} showContact />
+          <Section
+            title="Accepted jobs (contact unlocked)"
+            items={accepted}
+            showContact
+            onMarkCompleted={markAsCompleted}
+            markingId={markingId}
+            markedCompletedIds={markedCompletedIds}
+          />
           <Section title="Pending offers" items={pending} />
           <Section title="Rejected offers" items={rejected} />
         </div>
@@ -235,10 +289,16 @@ function Section({
   title,
   items,
   showContact,
+  onMarkCompleted,
+  markingId,
+  markedCompletedIds,
 }: {
   title: string;
   items: DashItem[];
   showContact?: boolean;
+  onMarkCompleted?: (requestId: string) => void;
+  markingId?: string | null;
+  markedCompletedIds?: Set<string>;
 }) {
   return (
     <div style={card}>
@@ -252,8 +312,9 @@ function Section({
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
           {items.map((x) => {
-            const reqStatus = norm(x.request_status);
-            const requestClosed = reqStatus && reqStatus !== "open";
+            const canMarkCompleted = !!showContact && !!onMarkCompleted;
+            const isMarking = markingId === x.request_id;
+            const isMarked = markedCompletedIds?.has(x.request_id) ?? false;
 
             return (
               <div key={x.offer_id} style={jobCard}>
@@ -262,13 +323,28 @@ function Section({
                     <div style={{ fontSize: 22, fontWeight: 900 }}>
                       {x.title || "Untitled job"}
                     </div>
-
                     <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
                       Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
                       <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
-                      
                     </div>
                   </div>
+
+                  {canMarkCompleted ? (
+                    <button
+                      type="button"
+                      style={{
+                        ...btnSmall,
+                        background: isMarked ? "#eee" : "#fff",
+                        cursor: isMarked ? "not-allowed" : "pointer",
+                        opacity: isMarking ? 0.7 : 1,
+                      }}
+                      disabled={isMarked || isMarking}
+                      onClick={() => onMarkCompleted(x.request_id)}
+                      title="After finishing the job, mark it completed so the customer can confirm."
+                    >
+                      {isMarked ? "Waiting customer confirm" : isMarking ? "Marking…" : "Mark as completed"}
+                    </button>
+                  ) : null}
                 </div>
 
                 <div style={{ marginTop: 10, fontWeight: 700 }}>
@@ -360,6 +436,16 @@ const btn: React.CSSProperties = {
   background: "#fff",
   cursor: "pointer",
   fontWeight: 900,
+};
+
+const btnSmall: React.CSSProperties = {
+  padding: "10px 12px",
+  border: "2px solid #000",
+  background: "#fff",
+  cursor: "pointer",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+  height: 44,
 };
 
 const notice: React.CSSProperties = {
