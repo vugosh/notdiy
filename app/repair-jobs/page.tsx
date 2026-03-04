@@ -41,14 +41,14 @@ export default function RepairJobsPage() {
   // mobil list/map
   const [mobileTab, setMobileTab] = useState<"list" | "map">("list");
 
-  // ✅ Xəritə/popup üçün seçilmiş job (əvvəlki kimi qalır)
+  // ✅ Xəritə/popup üçün seçilmiş job
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(
     () => jobs.find((j) => j.id === selectedId) || null,
     [jobs, selectedId]
   );
 
-  // ✅ Offer modal üçün ayrıca seçilmiş job (qarışmasın!)
+  // ✅ Offer modal üçün ayrıca seçilmiş job
   const [offerModalId, setOfferModalId] = useState<string | null>(null);
   const offerTarget = useMemo(
     () => jobs.find((j) => j.id === offerModalId) || null,
@@ -63,7 +63,7 @@ export default function RepairJobsPage() {
   // auth user
   const [userId, setUserId] = useState<string | null>(null);
 
-  // offers state (Variant 2)
+  // offers state
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [offeredRequestIds, setOfferedRequestIds] = useState<Set<string>>(
     new Set()
@@ -80,6 +80,43 @@ export default function RepairJobsPage() {
     longitude: -75.1652,
     zoom: 11,
   });
+
+  // ✅ 3 offer dolmuş/closed requestləri listdən silmək üçün helper
+  function removeJobFromList(requestId: string) {
+    setJobs((prev) => prev.filter((j) => j.id !== requestId));
+    setSelectedId((prev) => (prev === requestId ? null : prev));
+    setOfferModalId((prev) => (prev === requestId ? null : prev));
+  }
+
+  // ✅ RPC-dən gələn job-ları “open && offers_count < 3” olanlarla filter edirik
+  async function filterToOpenJobs(rows: NearbyRequest[]) {
+    try {
+      const ids = rows.map((r) => r.id).filter(Boolean);
+      if (ids.length === 0) return rows;
+
+      const { data, error } = await supabase
+        .from("requests")
+        .select("id,status,offers_count")
+        .in("id", ids);
+
+      if (error) {
+        console.error("filterToOpenJobs error:", error);
+        // icazə yoxdursa, heç olmasa list boşalmasın:
+        return rows;
+      }
+
+      const okIds = new Set(
+        (data ?? [])
+          .filter((r: any) => (r.status || "") === "open" && Number(r.offers_count ?? 0) < 3)
+          .map((r: any) => r.id as string)
+      );
+
+      return rows.filter((r) => okIds.has(r.id));
+    } catch (e) {
+      console.error("filterToOpenJobs exception:", e);
+      return rows;
+    }
+  }
 
   // ✅ SINGLE SOURCE OF TRUTH: wallet balance only from RPC
   async function refreshWallet() {
@@ -144,7 +181,7 @@ export default function RepairJobsPage() {
 
       if (isMounted) setUserId(user.id);
 
-      // 1) wallet (RPC -> reads from wallet_transactions sum)
+      // 1) wallet
       await refreshWallet();
 
       // 2) my offers
@@ -229,9 +266,13 @@ export default function RepairJobsPage() {
       }
 
       const rows = (Array.isArray(data) ? data : []) as NearbyRequest[];
-      setJobs(rows);
+
+      // ✅ burada 3 offer dolmuş/closed requestləri çıxarırıq
+      const filtered = await filterToOpenJobs(rows);
+
+      setJobs(filtered);
       setSelectedId(null);
-      setMapToFirstJob(rows);
+      setMapToFirstJob(filtered);
     } catch (e: any) {
       setMessage(e?.message || "Something went wrong.");
       setJobs([]);
@@ -276,9 +317,13 @@ export default function RepairJobsPage() {
       }
 
       const rows = (Array.isArray(data) ? data : []) as NearbyRequest[];
-      setJobs(rows);
+
+      // ✅ burada 3 offer dolmuş/closed requestləri çıxarırıq
+      const filtered = await filterToOpenJobs(rows);
+
+      setJobs(filtered);
       setSelectedId(null);
-      setMapToFirstJob(rows);
+      setMapToFirstJob(filtered);
     } catch {
       setMessage(
         "Could not get your location. Please allow location access or use ZIP."
@@ -333,57 +378,72 @@ export default function RepairJobsPage() {
   // ✅ Offer göndər
   async function handleSubmitOffer() {
     setMessage("");
-  
+
     if (!userId) {
       setMessage("Please login again.");
       return;
     }
-  
+
     if (!offerTarget) {
       setMessage("Please select a job again.");
       return;
     }
-  
+
     if (offeredRequestIds.has(offerTarget.id)) {
       setMessage("You already sent an offer for this job.");
       closeOfferModal();
       return;
     }
-  
+
     const priceNumber = Number(offerPrice);
-  
+
     if (!priceNumber || priceNumber <= 0) {
       setMessage("Please enter a valid price.");
       return;
     }
-  
+
     setSubmitting(true);
-  
+
     try {
       const { error } = await supabase.rpc("create_offer_and_charge", {
         p_request_id: offerTarget.id,
         p_message: (offerMessage || "").trim() || "I can help with this job.",
         p_price_cents: Math.round(priceNumber * 100),
       });
-  
+
       if (error) {
+        const msg = (error.message || "").toUpperCase();
+
+        // ✅ 3 offer dolubsa / request closed-dursa: userə başa sal və listdən çıxar
+        if (
+          msg.includes("MAX_OFFERS_REACHED") ||
+          msg.includes("REQUEST_CLOSED")
+        ) {
+          setMessage(
+            "This job is no longer accepting offers (already reached the max offers)."
+          );
+          removeJobFromList(offerTarget.id);
+          closeOfferModal();
+          return;
+        }
+
         setMessage(error.message);
         return;
       }
-  
+
       // 🔹 disable et
       setOfferedRequestIds((prev) => {
         const next = new Set(prev);
         next.add(offerTarget.id);
         return next;
       });
-  
+
       // 🔹 wallet yenilə
       await refreshWallet();
-  
+
       // 🔹 modal bağla
       closeOfferModal();
-  
+
       // 🔹 mesaj göstər
       setMessage(
         "Offer sent ✅ You'll be notified once the customer accepts your offer."
@@ -676,12 +736,12 @@ export default function RepairJobsPage() {
       {/* ✅ OFFER MODAL */}
       {offerTarget && (
         <div
-        style={modalOverlay}
-        onClick={() => {
-          `if (submitting) return;`
-          closeOfferModal();
-        }}
-      >
+          style={modalOverlay}
+          onClick={() => {
+            if (submitting) return;
+            closeOfferModal();
+          }}
+        >
           <div
             style={modalCard}
             onClick={(e) => {
