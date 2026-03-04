@@ -15,8 +15,8 @@ type RequestRow = {
   description: string | null;
   media_urls: string[] | null;
 
-  status: string | null;
-  job_status: string | null;
+  status: string | null; // closed/accepted/new və s.
+  job_status: string | null; // awaiting_offers / waiting_customer_confirmation / completed / dispute ...
 
   tracking_number: string | null;
   created_at: string | null;
@@ -32,13 +32,6 @@ type OfferRow = {
 
 function norm(v: string | null | undefined) {
   return (v || "").toLowerCase().trim();
-}
-
-// ✅ RPC bəzən object, bəzən array qaytarır — bunu düz parse edirik
-function pickOne<T>(data: any): T | null {
-  if (!data) return null;
-  if (Array.isArray(data)) return (data[0] as T) ?? null;
-  return data as T;
 }
 
 export default function TrackPage() {
@@ -59,12 +52,6 @@ export default function TrackPage() {
   // completion actions
   const [confirming, setConfirming] = useState(false);
   const [reporting, setReporting] = useState(false);
-
-  // ✅ accepted offer var?
-  const hasAcceptedOffer = useMemo(
-    () => offers.some((o) => norm(o.status) === "accepted"),
-    [offers]
-  );
 
   async function loadOffers(p_email: string, p_tracking_number: string) {
     setOffersLoading(true);
@@ -88,22 +75,27 @@ export default function TrackPage() {
       return;
     }
 
-    setOffers((Array.isArray(data) ? data : []) as OfferRow[]);
+    const rows = (Array.isArray(data) ? data : []) as any[];
+    setOffers(rows as OfferRow[]);
   }
 
   async function refreshRequest(cleanEmail: string, cleanTracking: string) {
-    const { data, error } = await supabase.rpc("get_request_by_tracking", {
-      p_tracking_number: cleanTracking,
-      p_email: cleanEmail,
-    });
+    const { data: refreshed, error } = await supabase.rpc(
+      "get_request_by_tracking",
+      {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      }
+    );
 
     if (error) {
       console.error("get_request_by_tracking refresh error:", error);
       return;
     }
 
-    const one = pickOne<RequestRow>(data);
-    if (one) setResult(one);
+    // ✅ FIX: returns table -> array
+    const row = Array.isArray(refreshed) ? refreshed[0] : refreshed;
+    if (row) setResult(row as RequestRow);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -136,13 +128,16 @@ export default function TrackPage() {
       return;
     }
 
-    const one = pickOne<RequestRow>(data);
-    if (!one) {
+    // ✅ FIX: returns table -> array
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row) {
       setErrorMsg("No request found for this email + tracking number.");
       return;
     }
 
-    setResult(one);
+    setResult(row as RequestRow);
+
     await loadOffers(cleanEmail, cleanTracking);
   }
 
@@ -158,9 +153,9 @@ export default function TrackPage() {
       return;
     }
 
-    // ✅ request.status closed olsa belə, accepted offer varsa blokla
-    if (hasAcceptedOffer) {
-      setInfoMsg("This request already has an accepted offer.");
+    // request artıq accepted olarsa blokla
+    if (norm(result.status) === "accepted") {
+      setInfoMsg("This request is already accepted.");
       return;
     }
 
@@ -250,13 +245,10 @@ export default function TrackPage() {
 
     setReporting(true);
     try {
-      const { error } = await supabase.rpc(
-        "customer_report_problem_by_tracking",
-        {
-          p_tracking_number: cleanTracking,
-          p_email: cleanEmail,
-        }
-      );
+      const { error } = await supabase.rpc("customer_report_problem_by_tracking", {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      });
 
       if (error) {
         setErrorMsg(error.message || "Could not report the problem.");
@@ -270,20 +262,16 @@ export default function TrackPage() {
     }
   }
 
+  // ✅ göstərmə qaydaları (status closed olsa belə job_status-a görə işləsin)
   const jobStatus = norm(result?.job_status);
 
-  const showConfirmBlock =
-    hasAcceptedOffer && jobStatus === "waiting_customer_confirmation";
+  const showConfirmBlock = jobStatus === "waiting_customer_confirmation";
+  const showCompleted = jobStatus === "completed";
+  const showDispute = jobStatus === "dispute";
 
-  const showCompleted = hasAcceptedOffer && jobStatus === "completed";
-  const showDispute = hasAcceptedOffer && jobStatus === "dispute";
-
-  const showInProgressHint =
-    hasAcceptedOffer &&
-    !showConfirmBlock &&
-    !showCompleted &&
-    !showDispute &&
-    (jobStatus === "" || jobStatus === "awaiting_offers" || jobStatus === "in_progress");
+  const acceptedOfferExists = useMemo(() => {
+    return offers.some((o) => norm(o.status) === "accepted");
+  }, [offers]);
 
   return (
     <main
@@ -297,6 +285,9 @@ export default function TrackPage() {
     >
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <h1 style={{ fontSize: 44, marginBottom: 10 }}>Track your request</h1>
+        <p style={{ color: "#555", marginTop: 0, marginBottom: 24 }}>
+          Enter your email and tracking number to view your repair request and handyman offers.
+        </p>
 
         <form
           onSubmit={handleSubmit}
@@ -332,7 +323,7 @@ export default function TrackPage() {
               value={trackingNumber}
               onChange={(e) => setTrackingNumber(e.target.value)}
               inputMode="numeric"
-              placeholder="e.g. 537499"
+              placeholder="e.g. 433136"
               style={{
                 padding: "12px 12px",
                 borderRadius: 8,
@@ -401,13 +392,22 @@ export default function TrackPage() {
               background: "#fff",
             }}
           >
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
               <h2 style={{ margin: 0, fontSize: 22 }}>Your request</h2>
+
               <span style={{ color: "#666", fontSize: 13 }}>
                 Tracking: <strong>{result.tracking_number ?? "-"}</strong>
               </span>
             </div>
 
+            {/* ✅ Job confirmation block */}
             {showConfirmBlock ? (
               <div
                 style={{
@@ -425,7 +425,14 @@ export default function TrackPage() {
                   If everything looks good, please confirm now.
                 </div>
 
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
                   <button
                     type="button"
                     onClick={confirmCompletion}
@@ -463,12 +470,6 @@ export default function TrackPage() {
               </div>
             ) : null}
 
-            {showInProgressHint ? (
-              <div style={{ marginTop: 14, color: "#555" }}>
-                Your job is in progress. When the handyman finishes, you’ll see a confirmation here.
-              </div>
-            ) : null}
-
             {showCompleted ? (
               <div style={{ marginTop: 14, color: "#0b2a6f", fontWeight: 800 }}>
                 ✅ This job is marked as successfully completed.
@@ -488,8 +489,12 @@ export default function TrackPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>Description</div>
-                <div style={{ whiteSpace: "pre-wrap" }}>{result.description ?? "-"}</div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  Description
+                </div>
+                <div style={{ whiteSpace: "pre-wrap" }}>
+                  {result.description ?? "-"}
+                </div>
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
@@ -514,13 +519,18 @@ export default function TrackPage() {
               </div>
             </div>
 
+            {/* OFFERS */}
             <div style={{ marginTop: 20 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 20 }}>Handyman offers</h3>
+              <h3 style={{ margin: "0 0 10px", fontSize: 20 }}>
+                Handyman offers
+              </h3>
 
               {offersLoading ? (
                 <div style={{ color: "#666" }}>Loading offers…</div>
               ) : offers.length === 0 ? (
-                <div style={{ color: "#666" }}>No offers yet. Please check back soon.</div>
+                <div style={{ color: "#666" }}>
+                  No offers yet. Please check back soon.
+                </div>
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   {offers.map((o) => {
@@ -529,10 +539,9 @@ export default function TrackPage() {
                         ? `$${(Number(o.price_cents) / 100).toFixed(2)}`
                         : "—";
 
-                    const status = norm(o.status) || "pending";
+                    const status = norm(o.status || "pending");
                     const isThisAccepted = status === "accepted";
-                    const disabled =
-                      hasAcceptedOffer || isThisAccepted || status === "rejected";
+                    const disabled = acceptedOfferExists || isThisAccepted || status === "rejected";
                     const isWorking = acceptingId === o.offer_id;
 
                     return (
@@ -553,8 +562,12 @@ export default function TrackPage() {
                             alignItems: "center",
                           }}
                         >
-                          <div style={{ fontSize: 18, fontWeight: 900 }}>{price}</div>
-                          <div style={{ fontSize: 13, color: "#666" }}>{status}</div>
+                          <div style={{ fontSize: 18, fontWeight: 900 }}>
+                            {price}
+                          </div>
+                          <div style={{ fontSize: 13, color: "#666" }}>
+                            {status}
+                          </div>
                         </div>
 
                         <div style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>
@@ -577,7 +590,7 @@ export default function TrackPage() {
                         >
                           {isThisAccepted
                             ? "Accepted"
-                            : hasAcceptedOffer
+                            : acceptedOfferExists
                             ? "Accepted (request locked)"
                             : isWorking
                             ? "Accepting…"
