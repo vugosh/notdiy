@@ -15,7 +15,7 @@ type RequestRow = {
   description: string | null;
   media_urls: string[] | null;
 
-  status: string | null; // closed/accepted/new və s.
+  status: string | null; // your old field (new/accepted/closed etc.)
   job_status: string | null; // awaiting_offers / waiting_customer_confirmation / completed / dispute ...
 
   tracking_number: string | null;
@@ -34,29 +34,69 @@ function norm(v: string | null | undefined) {
   return (v || "").toLowerCase().trim();
 }
 
+function firstRow<T>(data: any): T | null {
+  if (!data) return null;
+  if (Array.isArray(data)) return (data[0] as T) ?? null;
+  if (typeof data === "object") return data as T;
+  return null;
+}
+
+function money(cents: number | null | undefined) {
+  const n = Number(cents ?? 0);
+  return `$${(n / 100).toFixed(2)}`;
+}
+
+function jobStatusLabel(v: string | null | undefined) {
+  const s = norm(v);
+  if (!s) return "—";
+  if (s === "awaiting_offers") return "Waiting for offers";
+  if (s === "in_progress") return "In progress";
+  if (s === "waiting_customer_confirmation") return "Waiting for your confirmation";
+  if (s === "completed") return "Successfully completed";
+  if (s === "dispute") return "Problem reported";
+  return s;
+}
+
+function safeDate(v: string | null | undefined) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US");
+}
+
 export default function TrackPage() {
   const [email, setEmail] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [errorMsg, setErrorMsg] = useState<string>("");
-  const [infoMsg, setInfoMsg] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [infoMsg, setInfoMsg] = useState("");
 
   const [result, setResult] = useState<RequestRow | null>(null);
 
-  // offers
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [offersLoading, setOffersLoading] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
-  // completion actions
   const [confirming, setConfirming] = useState(false);
   const [reporting, setReporting] = useState(false);
+
+  const cleanEmail = useMemo(() => email.trim().toLowerCase(), [email]);
+  const cleanTracking = useMemo(() => trackingNumber.trim(), [trackingNumber]);
+
+  const acceptedOfferExists = useMemo(
+    () => offers.some((o) => norm(o.status) === "accepted"),
+    [offers]
+  );
+
+  const jobStatus = norm(result?.job_status);
+  const showConfirmBlock = jobStatus === "waiting_customer_confirmation";
+  const showCompleted = jobStatus === "completed";
+  const showDispute = jobStatus === "dispute";
 
   async function loadOffers(p_email: string, p_tracking_number: string) {
     setOffersLoading(true);
     setOffers([]);
-    setInfoMsg("");
 
     const { data, error } = await supabase.rpc("get_offers_for_tracking", {
       p_tracking_number,
@@ -75,27 +115,23 @@ export default function TrackPage() {
       return;
     }
 
-    const rows = (Array.isArray(data) ? data : []) as any[];
+    const rows = Array.isArray(data) ? data : [];
     setOffers(rows as OfferRow[]);
   }
 
-  async function refreshRequest(cleanEmail: string, cleanTracking: string) {
-    const { data: refreshed, error } = await supabase.rpc(
-      "get_request_by_tracking",
-      {
-        p_tracking_number: cleanTracking,
-        p_email: cleanEmail,
-      }
-    );
+  async function refreshRequest(p_email: string, p_tracking_number: string) {
+    const { data, error } = await supabase.rpc("get_request_by_tracking", {
+      p_tracking_number,
+      p_email,
+    });
 
     if (error) {
       console.error("get_request_by_tracking refresh error:", error);
       return;
     }
 
-    // ✅ FIX: returns table -> array
-    const row = Array.isArray(refreshed) ? refreshed[0] : refreshed;
-    if (row) setResult(row as RequestRow);
+    const row = firstRow<RequestRow>(data);
+    if (row) setResult(row);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -104,9 +140,6 @@ export default function TrackPage() {
     setInfoMsg("");
     setResult(null);
     setOffers([]);
-
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanTracking = trackingNumber.trim();
 
     if (!cleanEmail || !cleanTracking) {
       setErrorMsg("Please enter both email and tracking number.");
@@ -128,16 +161,13 @@ export default function TrackPage() {
       return;
     }
 
-    // ✅ FIX: returns table -> array
-    const row = Array.isArray(data) ? data[0] : data;
-
+    const row = firstRow<RequestRow>(data);
     if (!row) {
       setErrorMsg("No request found for this email + tracking number.");
       return;
     }
 
-    setResult(row as RequestRow);
-
+    setResult(row);
     await loadOffers(cleanEmail, cleanTracking);
   }
 
@@ -145,17 +175,13 @@ export default function TrackPage() {
     setErrorMsg("");
     setInfoMsg("");
 
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanTracking = trackingNumber.trim();
-
     if (!cleanEmail || !cleanTracking || !result) {
       setErrorMsg("Please search your request again.");
       return;
     }
 
-    // request artıq accepted olarsa blokla
-    if (norm(result.status) === "accepted") {
-      setInfoMsg("This request is already accepted.");
+    if (acceptedOfferExists) {
+      setInfoMsg("An offer is already accepted for this request.");
       return;
     }
 
@@ -179,7 +205,6 @@ export default function TrackPage() {
       }
 
       setInfoMsg("Offer accepted ✅ The handyman will contact you soon.");
-
       await refreshRequest(cleanEmail, cleanTracking);
       await loadOffers(cleanEmail, cleanTracking);
     } finally {
@@ -191,9 +216,6 @@ export default function TrackPage() {
     setErrorMsg("");
     setInfoMsg("");
 
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanTracking = trackingNumber.trim();
-
     if (!cleanEmail || !cleanTracking || !result) {
       setErrorMsg("Please search your request again.");
       return;
@@ -201,21 +223,18 @@ export default function TrackPage() {
 
     setConfirming(true);
     try {
-      const { error } = await supabase.rpc(
-        "customer_confirm_completion_by_tracking",
-        {
-          p_tracking_number: cleanTracking,
-          p_email: cleanEmail,
-        }
-      );
+      const { error } = await supabase.rpc("customer_confirm_completion_by_tracking", {
+        p_tracking_number: cleanTracking,
+        p_email: cleanEmail,
+      });
 
       if (error) {
-        const msg = error.message || "";
+        const msg = error.message || "Could not confirm completion.";
         if (msg.includes("NOT_READY_TO_CONFIRM")) {
           setErrorMsg("This job is not ready for confirmation yet.");
-          return;
+        } else {
+          setErrorMsg(msg);
         }
-        setErrorMsg(msg);
         return;
       }
 
@@ -229,9 +248,6 @@ export default function TrackPage() {
   async function reportProblem() {
     setErrorMsg("");
     setInfoMsg("");
-
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanTracking = trackingNumber.trim();
 
     if (!cleanEmail || !cleanTracking || !result) {
       setErrorMsg("Please search your request again.");
@@ -262,190 +278,82 @@ export default function TrackPage() {
     }
   }
 
-  // ✅ göstərmə qaydaları (status closed olsa belə job_status-a görə işləsin)
-  const jobStatus = norm(result?.job_status);
-
-  const showConfirmBlock = jobStatus === "waiting_customer_confirmation";
-  const showCompleted = jobStatus === "completed";
-  const showDispute = jobStatus === "dispute";
-
-  const acceptedOfferExists = useMemo(() => {
-    return offers.some((o) => norm(o.status) === "accepted");
-  }, [offers]);
+  const headerTracking = result?.tracking_number || cleanTracking || "—";
 
   return (
-    <main
-      style={{
-        backgroundColor: "#ffffff",
-        color: "#000000",
-        minHeight: "100vh",
-        padding: "120px 24px 80px",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 44, marginBottom: 10 }}>Track your request</h1>
-        <p style={{ color: "#555", marginTop: 0, marginBottom: 24 }}>
-          Enter your email and tracking number to view your repair request and handyman offers.
+    <main style={pageWrap}>
+      <div style={{ maxWidth: 920, margin: "0 auto" }}>
+        <h1 style={h1}>Track your request</h1>
+        <p style={sub}>
+          Enter your email and tracking number to view your request status and handyman offers.
         </p>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{
-            display: "grid",
-            gap: 12,
-            maxWidth: 520,
-            padding: 16,
-            border: "1px solid #eee",
-            borderRadius: 10,
-            background: "#fff",
-          }}
-        >
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 700 }}>Email</span>
+        {/* SEARCH FORM */}
+        <form onSubmit={handleSubmit} style={formCard}>
+          <label style={field}>
+            <span style={label}>Email</span>
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
               placeholder="you@example.com"
-              style={{
-                padding: "12px 12px",
-                borderRadius: 8,
-                border: "1px solid #ccc",
-                fontSize: 16,
-              }}
+              style={input}
             />
           </label>
 
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 700 }}>Tracking number</span>
+          <label style={field}>
+            <span style={label}>Tracking number</span>
             <input
               value={trackingNumber}
               onChange={(e) => setTrackingNumber(e.target.value)}
               inputMode="numeric"
               placeholder="e.g. 433136"
-              style={{
-                padding: "12px 12px",
-                borderRadius: 8,
-                border: "1px solid #ccc",
-                fontSize: 16,
-              }}
+              style={input}
             />
           </label>
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              marginTop: 6,
-              padding: "14px 16px",
-              borderRadius: 8,
-              border: "none",
-              background: "#000",
-              color: "#fff",
-              fontSize: 16,
-              fontWeight: 700,
-              cursor: loading ? "not-allowed" : "pointer",
-            }}
-          >
+          <button type="submit" disabled={loading} style={primaryBtn}>
             {loading ? "Checking..." : "Track"}
           </button>
 
-          {errorMsg ? (
-            <div
-              style={{
-                marginTop: 6,
-                padding: 12,
-                borderRadius: 8,
-                background: "#fff3f3",
-                border: "1px solid #ffd0d0",
-                color: "#a40000",
-              }}
-            >
-              {errorMsg}
-            </div>
-          ) : null}
+          {errorMsg ? <div style={errorBox}>{errorMsg}</div> : null}
+          {infoMsg ? <div style={infoBox}>{infoMsg}</div> : null}
 
-          {infoMsg ? (
-            <div
-              style={{
-                marginTop: 6,
-                padding: 12,
-                borderRadius: 8,
-                background: "#f3f7ff",
-                border: "1px solid #d6e3ff",
-                color: "#0b2a6f",
-              }}
-            >
-              {infoMsg}
-            </div>
-          ) : null}
+          <div style={hint}>
+            Your tracking number was emailed to you. Keep it secure.
+          </div>
         </form>
 
+        {/* RESULT */}
         {result ? (
-          <div
-            style={{
-              marginTop: 24,
-              padding: 18,
-              borderRadius: 12,
-              border: "1px solid #eee",
-              background: "#fff",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 10,
-                alignItems: "center",
-              }}
-            >
-              <h2 style={{ margin: 0, fontSize: 22 }}>Your request</h2>
-
-              <span style={{ color: "#666", fontSize: 13 }}>
-                Tracking: <strong>{result.tracking_number ?? "-"}</strong>
-              </span>
+          <div style={resultCard}>
+            <div style={resultHeader}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ fontSize: 22, fontWeight: 900 }}>Your request</div>
+                <span style={pill}>Tracking: {headerTracking}</span>
+                <span style={pillMuted}>Job: {jobStatusLabel(result.job_status)}</span>
+              </div>
+              <div style={{ color: "#777", fontSize: 13 }}>
+                Created: {safeDate(result.created_at)}
+              </div>
             </div>
 
-            {/* ✅ Job confirmation block */}
+            {/* CONFIRM BLOCK */}
             {showConfirmBlock ? (
-              <div
-                style={{
-                  marginTop: 14,
-                  padding: 14,
-                  borderRadius: 10,
-                  border: "1px solid #d6e3ff",
-                  background: "#f3f7ff",
-                }}
-              >
+              <div style={confirmCard}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>
                   The handyman marked this job as completed.
                 </div>
                 <div style={{ marginTop: 6, color: "#0b2a6f" }}>
-                  If everything looks good, please confirm now.
+                  If everything looks good, please confirm now (while you are together).
                 </div>
 
-                <div
-                  style={{
-                    marginTop: 12,
-                    display: "flex",
-                    gap: 10,
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={confirmCompletion}
                     disabled={confirming || reporting}
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 8,
-                      border: "2px solid #000",
-                      background: "#000",
-                      color: "#fff",
-                      fontWeight: 900,
-                      cursor: confirming ? "not-allowed" : "pointer",
-                    }}
+                    style={confirmBtn}
                   >
                     {confirming ? "Confirming…" : "Confirm completion"}
                   </button>
@@ -454,15 +362,7 @@ export default function TrackPage() {
                     type="button"
                     onClick={reportProblem}
                     disabled={confirming || reporting}
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 8,
-                      border: "2px solid #000",
-                      background: "#fff",
-                      color: "#000",
-                      fontWeight: 900,
-                      cursor: reporting ? "not-allowed" : "pointer",
-                    }}
+                    style={outlineBtn}
                   >
                     {reporting ? "Reporting…" : "Report a problem"}
                   </button>
@@ -471,36 +371,33 @@ export default function TrackPage() {
             ) : null}
 
             {showCompleted ? (
-              <div style={{ marginTop: 14, color: "#0b2a6f", fontWeight: 800 }}>
-                ✅ This job is marked as successfully completed.
+              <div style={{ marginTop: 14, fontWeight: 900, color: "#0b2a6f" }}>
+                ✅ Successfully completed.
               </div>
             ) : null}
 
             {showDispute ? (
-              <div style={{ marginTop: 14, color: "#a40000", fontWeight: 800 }}>
+              <div style={{ marginTop: 14, fontWeight: 900, color: "#a40000" }}>
                 ⚠️ A problem was reported. Support will follow up.
               </div>
             ) : null}
 
-            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            {/* DETAILS */}
+            <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
               <div>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>Title</div>
-                <div>{result.title ?? "-"}</div>
+                <div style={sectionTitle}>Title</div>
+                <div>{result.title || "—"}</div>
               </div>
 
               <div>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                  Description
-                </div>
-                <div style={{ whiteSpace: "pre-wrap" }}>
-                  {result.description ?? "-"}
-                </div>
+                <div style={sectionTitle}>Description</div>
+                <div style={{ whiteSpace: "pre-wrap" }}>{result.description || "—"}</div>
               </div>
 
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontWeight: 700 }}>Media</div>
+              <div>
+                <div style={sectionTitle}>Media</div>
                 {result.media_urls?.length ? (
-                  <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "grid", gap: 8 }}>
                     {result.media_urls.map((url, idx) => (
                       <a
                         key={idx}
@@ -520,10 +417,10 @@ export default function TrackPage() {
             </div>
 
             {/* OFFERS */}
-            <div style={{ marginTop: 20 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 20 }}>
+            <div style={{ marginTop: 22 }}>
+              <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 10 }}>
                 Handyman offers
-              </h3>
+              </div>
 
               {offersLoading ? (
                 <div style={{ color: "#666" }}>Loading offers…</div>
@@ -534,40 +431,40 @@ export default function TrackPage() {
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   {offers.map((o) => {
-                    const price =
-                      o.price_cents != null
-                        ? `$${(Number(o.price_cents) / 100).toFixed(2)}`
-                        : "—";
-
                     const status = norm(o.status || "pending");
                     const isThisAccepted = status === "accepted";
-                    const disabled = acceptedOfferExists || isThisAccepted || status === "rejected";
+                    const isRejected = status === "rejected";
                     const isWorking = acceptingId === o.offer_id;
 
+                    const locked = acceptedOfferExists && !isThisAccepted;
+                    const disabled = locked || isThisAccepted || isRejected || isWorking;
+
                     return (
-                      <div
-                        key={o.offer_id}
-                        style={{
-                          border: "1px solid #eee",
-                          borderRadius: 10,
-                          padding: 14,
-                          background: "#fff",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: 12,
-                            alignItems: "center",
-                          }}
-                        >
+                      <div key={o.offer_id} style={offerCard}>
+                        <div style={offerTop}>
                           <div style={{ fontSize: 18, fontWeight: 900 }}>
-                            {price}
+                            {money(o.price_cents)}
                           </div>
-                          <div style={{ fontSize: 13, color: "#666" }}>
+
+                          <span
+                            style={{
+                              ...offerBadge,
+                              borderColor:
+                                status === "accepted"
+                                  ? "#0b2a6f"
+                                  : status === "rejected"
+                                  ? "#a40000"
+                                  : "#000",
+                              color:
+                                status === "accepted"
+                                  ? "#0b2a6f"
+                                  : status === "rejected"
+                                  ? "#a40000"
+                                  : "#000",
+                            }}
+                          >
                             {status}
-                          </div>
+                          </span>
                         </div>
 
                         <div style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>
@@ -577,27 +474,23 @@ export default function TrackPage() {
                         <button
                           type="button"
                           onClick={() => acceptOffer(o.offer_id)}
-                          disabled={disabled || isWorking}
+                          disabled={disabled}
                           style={{
-                            marginTop: 12,
-                            padding: "12px 14px",
-                            borderRadius: 8,
-                            border: "2px solid #000",
+                            ...offerBtn,
                             background: disabled ? "#eee" : "#fff",
-                            fontWeight: 900,
                             cursor: disabled ? "not-allowed" : "pointer",
                           }}
                         >
                           {isThisAccepted
                             ? "Accepted"
-                            : acceptedOfferExists
-                            ? "Accepted (request locked)"
+                            : locked
+                            ? "Locked (another offer accepted)"
                             : isWorking
                             ? "Accepting…"
                             : "Accept this offer"}
                         </button>
 
-                        <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
                           After accepting, the handyman will see your contact details.
                         </div>
                       </div>
@@ -612,3 +505,186 @@ export default function TrackPage() {
     </main>
   );
 }
+
+/* ---------------- styles ---------------- */
+
+const pageWrap: React.CSSProperties = {
+  backgroundColor: "#ffffff",
+  color: "#000000",
+  minHeight: "100vh",
+  padding: "120px 24px 80px",
+  fontFamily: "Arial, sans-serif",
+};
+
+const h1: React.CSSProperties = {
+  fontSize: 44,
+  margin: "0 0 10px",
+};
+
+const sub: React.CSSProperties = {
+  color: "#555",
+  marginTop: 0,
+  marginBottom: 24,
+  maxWidth: 820,
+  lineHeight: 1.35,
+};
+
+const formCard: React.CSSProperties = {
+  display: "grid",
+  gap: 12,
+  maxWidth: 560,
+  padding: 16,
+  border: "1px solid #eee",
+  borderRadius: 12,
+  background: "#fff",
+};
+
+const field: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+};
+
+const label: React.CSSProperties = {
+  fontWeight: 800,
+};
+
+const input: React.CSSProperties = {
+  padding: "12px 12px",
+  borderRadius: 10,
+  border: "1px solid #ccc",
+  fontSize: 16,
+  outline: "none",
+};
+
+const primaryBtn: React.CSSProperties = {
+  marginTop: 6,
+  padding: "14px 16px",
+  borderRadius: 10,
+  border: "none",
+  background: "#000",
+  color: "#fff",
+  fontSize: 16,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const hint: React.CSSProperties = {
+  fontSize: 13,
+  color: "#666",
+  lineHeight: 1.4,
+  marginTop: 2,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 6,
+  padding: 12,
+  borderRadius: 10,
+  background: "#fff3f3",
+  border: "1px solid #ffd0d0",
+  color: "#a40000",
+  fontWeight: 700,
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 6,
+  padding: 12,
+  borderRadius: 10,
+  background: "#f3f7ff",
+  border: "1px solid #d6e3ff",
+  color: "#0b2a6f",
+  fontWeight: 700,
+};
+
+const resultCard: React.CSSProperties = {
+  marginTop: 24,
+  padding: 18,
+  borderRadius: 12,
+  border: "1px solid #eee",
+  background: "#fff",
+};
+
+const resultHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const pill: React.CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 999,
+  border: "1px solid #000",
+  fontSize: 13,
+  fontWeight: 800,
+};
+
+const pillMuted: React.CSSProperties = {
+  ...pill,
+  borderColor: "#ddd",
+  color: "#444",
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontWeight: 900,
+  marginBottom: 4,
+};
+
+const confirmCard: React.CSSProperties = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 12,
+  border: "1px solid #d6e3ff",
+  background: "#f3f7ff",
+};
+
+const confirmBtn: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "2px solid #000",
+  background: "#000",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const outlineBtn: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "2px solid #000",
+  background: "#fff",
+  color: "#000",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const offerCard: React.CSSProperties = {
+  border: "1px solid #eee",
+  borderRadius: 12,
+  padding: 14,
+  background: "#fff",
+};
+
+const offerTop: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+};
+
+const offerBadge: React.CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 999,
+  border: "1px solid #000",
+  fontSize: 12,
+  fontWeight: 900,
+  textTransform: "uppercase",
+};
+
+const offerBtn: React.CSSProperties = {
+  marginTop: 12,
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "2px solid #000",
+  fontWeight: 900,
+};
