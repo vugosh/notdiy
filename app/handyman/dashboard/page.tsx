@@ -266,12 +266,7 @@ function Section({
                     <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
                       Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
                       <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
-                      {requestClosed ? (
-                        <>
-                          {" "}
-                          • <b style={{ color: "#b00" }}>REQUEST CLOSED</b>
-                        </>
-                      ) : null}
+                      
                     </div>
                   </div>
                 </div>
