@@ -27,6 +27,10 @@ type DashItem = {
   customer_address: string | null;
 };
 
+function norm(v: string | null | undefined) {
+  return (v || "").toLowerCase().trim();
+}
+
 export default function HandymanDashboardPage() {
   const router = useRouter();
 
@@ -161,16 +165,17 @@ export default function HandymanDashboardPage() {
     router.push("/handyman/login");
   }
 
+  // ✅ Pending/Accepted/Rejected bölmələri (heç nə gizlətmirik)
   const pending = useMemo(
-    () => items.filter((x) => (x.offer_status || "").toLowerCase() === "pending"),
+    () => items.filter((x) => norm(x.offer_status) === "pending"),
     [items]
   );
   const accepted = useMemo(
-    () => items.filter((x) => (x.offer_status || "").toLowerCase() === "accepted"),
+    () => items.filter((x) => norm(x.offer_status) === "accepted"),
     [items]
   );
   const rejected = useMemo(
-    () => items.filter((x) => (x.offer_status || "").toLowerCase() === "rejected"),
+    () => items.filter((x) => norm(x.offer_status) === "rejected"),
     [items]
   );
 
@@ -246,70 +251,82 @@ function Section({
         <div style={{ color: "#666" }}>Nothing here yet.</div>
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
-          {items.map((x) => (
-            <div key={x.offer_id} style={jobCard}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 22, fontWeight: 900 }}>
-                    {x.title || "Untitled job"}
-                  </div>
-                  <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
-                    Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
-                    <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
+          {items.map((x) => {
+            const reqStatus = norm(x.request_status);
+            const requestClosed = reqStatus && reqStatus !== "open";
+
+            return (
+              <div key={x.offer_id} style={jobCard}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 22, fontWeight: 900 }}>
+                      {x.title || "Untitled job"}
+                    </div>
+
+                    <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
+                      Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
+                      <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
+                      {requestClosed ? (
+                        <>
+                          {" "}
+                          • <b style={{ color: "#b00" }}>REQUEST CLOSED</b>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
+
+                <div style={{ marginTop: 10, fontWeight: 700 }}>
+                  {x.description || "—"}
+                </div>
+
+                <div style={{ marginTop: 10, color: "#444" }}>
+                  <b>Your message:</b> {x.offer_message || "—"}
+                </div>
+
+                {x.media_urls?.length ? (
+                  <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                    <div style={{ fontWeight: 800 }}>Media</div>
+                    {x.media_urls.map((u, idx) => (
+                      <a
+                        key={idx}
+                        href={u}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#000", textDecoration: "underline" }}
+                      >
+                        Open file {idx + 1}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+
+                {showContact ? (
+                  <div style={contactBox}>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                      Customer contact
+                    </div>
+                    <div>
+                      <b>Name:</b> {x.customer_first_name || "—"} {x.customer_last_name || ""}
+                    </div>
+                    <div>
+                      <b>Phone:</b> {x.customer_phone || "—"}
+                    </div>
+                    <div>
+                      <b>Email:</b> {x.customer_email || "—"}
+                    </div>
+                    <div>
+                      <b>Address:</b> {x.customer_address || "—"}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#777" }}>
+                    Contact details are hidden until the customer accepts your offer.
+                  </div>
+                )}
               </div>
-
-              <div style={{ marginTop: 10, fontWeight: 700 }}>
-                {x.description || "—"}
-              </div>
-
-              <div style={{ marginTop: 10, color: "#444" }}>
-                <b>Your message:</b> {x.offer_message || "—"}
-              </div>
-
-              {x.media_urls?.length ? (
-                <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 800 }}>Media</div>
-                  {x.media_urls.map((u, idx) => (
-                    <a
-                      key={idx}
-                      href={u}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#000", textDecoration: "underline" }}
-                    >
-                      Open file {idx + 1}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-
-              {showContact ? (
-                <div style={contactBox}>
-                  <div style={{ fontWeight: 900, marginBottom: 6 }}>
-                    Customer contact
-                  </div>
-                  <div>
-                    <b>Name:</b> {x.customer_first_name || "—"} {x.customer_last_name || ""}
-                  </div>
-                  <div>
-                    <b>Phone:</b> {x.customer_phone || "—"}
-                  </div>
-                  <div>
-                    <b>Email:</b> {x.customer_email || "—"}
-                  </div>
-                  <div>
-                    <b>Address:</b> {x.customer_address || "—"}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ marginTop: 10, fontSize: 12, color: "#777" }}>
-                  Contact details are hidden until the customer accepts your offer.
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
