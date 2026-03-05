@@ -15,8 +15,8 @@ type RequestRow = {
   description: string | null;
   media_urls: string[] | null;
 
-  status: string | null; // your old field (new/accepted/closed etc.)
-  job_status: string | null; // awaiting_offers / waiting_customer_confirmation / completed / dispute ...
+  status: string | null;
+  job_status: string | null;
 
   tracking_number: string | null;
   created_at: string | null;
@@ -26,7 +26,7 @@ type OfferRow = {
   offer_id: string;
   message: string | null;
   price_cents: number | null;
-  status: string | null; // pending/accepted/rejected
+  status: string | null;
   created_at: string | null;
 };
 
@@ -62,6 +62,38 @@ function safeDate(v: string | null | undefined) {
   const d = new Date(v);
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleString("en-US");
+}
+
+// ---- NEW: try direct SELECT first (if RLS allows), else fallback to RPC ----
+async function getRequestByEmailTracking(p_email: string, p_tracking_number: string) {
+  // 1) Try direct table select (fast + returns all fields)
+  const direct = await supabase
+    .from("requests")
+    .select(
+      "id,first_name,last_name,email,phone,address,zip,title,description,media_urls,status,job_status,tracking_number,created_at"
+    )
+    .eq("email", p_email)
+    .eq("tracking_number", p_tracking_number)
+    .maybeSingle();
+
+  if (!direct.error && direct.data) {
+    return { row: direct.data as RequestRow, source: "direct" as const };
+  }
+
+  // 2) Fallback to RPC (your existing secure path)
+  const rpc = await supabase.rpc("get_request_by_tracking", {
+    p_tracking_number,
+    p_email,
+  });
+
+  if (rpc.error) {
+    // return the direct error first if useful, otherwise rpc error
+    const msg = rpc.error?.message || direct.error?.message || "Unknown error";
+    return { row: null as RequestRow | null, error: msg, source: "rpc" as const };
+  }
+
+  const row = firstRow<RequestRow>(rpc.data);
+  return { row, source: "rpc" as const };
 }
 
 export default function TrackPage() {
@@ -120,18 +152,8 @@ export default function TrackPage() {
   }
 
   async function refreshRequest(p_email: string, p_tracking_number: string) {
-    const { data, error } = await supabase.rpc("get_request_by_tracking", {
-      p_tracking_number,
-      p_email,
-    });
-
-    if (error) {
-      console.error("get_request_by_tracking refresh error:", error);
-      return;
-    }
-
-    const row = firstRow<RequestRow>(data);
-    if (row) setResult(row);
+    const res = await getRequestByEmailTracking(p_email, p_tracking_number);
+    if (res.row) setResult(res.row);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -148,26 +170,20 @@ export default function TrackPage() {
 
     setLoading(true);
 
-    const { data, error } = await supabase.rpc("get_request_by_tracking", {
-      p_tracking_number: cleanTracking,
-      p_email: cleanEmail,
-    });
+    const res = await getRequestByEmailTracking(cleanEmail, cleanTracking);
 
     setLoading(false);
 
-    if (error) {
-      console.error("Track RPC error:", error);
-      setErrorMsg(error.message || "Something went wrong. Please try again.");
+    if (!res.row) {
+      console.error("Track error:", res);
+      setErrorMsg(res.error || "No request found for this email + tracking number.");
       return;
     }
 
-    const row = firstRow<RequestRow>(data);
-    if (!row) {
-      setErrorMsg("No request found for this email + tracking number.");
-      return;
-    }
+    // helpful debug info for you (optional)
+    // setInfoMsg(`Loaded via ${res.source}`);
 
-    setResult(row);
+    setResult(res.row);
     await loadOffers(cleanEmail, cleanTracking);
   }
 
@@ -425,9 +441,7 @@ export default function TrackPage() {
               {offersLoading ? (
                 <div style={{ color: "#666" }}>Loading offers…</div>
               ) : offers.length === 0 ? (
-                <div style={{ color: "#666" }}>
-                  No offers yet. Please check back soon.
-                </div>
+                <div style={{ color: "#666" }}>No offers yet. Please check back soon.</div>
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   {offers.map((o) => {
@@ -442,9 +456,7 @@ export default function TrackPage() {
                     return (
                       <div key={o.offer_id} style={offerCard}>
                         <div style={offerTop}>
-                          <div style={{ fontSize: 18, fontWeight: 900 }}>
-                            {money(o.price_cents)}
-                          </div>
+                          <div style={{ fontSize: 18, fontWeight: 900 }}>{money(o.price_cents)}</div>
 
                           <span
                             style={{
@@ -467,9 +479,7 @@ export default function TrackPage() {
                           </span>
                         </div>
 
-                        <div style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>
-                          {o.message || "—"}
-                        </div>
+                        <div style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{o.message || "—"}</div>
 
                         <button
                           type="button"
