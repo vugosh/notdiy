@@ -71,7 +71,24 @@ export default function HandymanDashboardPage() {
 
   // local UI hint
   const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
-  const [markingId, setMarkingId] = useState<string | null>(null);
+const [markingId, setMarkingId] = useState<string | null>(null);
+
+useEffect(() => {
+  if (items.length === 0) return;
+
+  setMarkedCompletedIds((prev) => {
+    const next = new Set(prev);
+
+    for (const it of items) {
+      const reqSt = norm(it.request_status);
+      if (reqSt === "completed") {
+        next.delete(it.request_id);
+      }
+    }
+
+    return next;
+  });
+}, [items]);
 
   async function loadHandymanProfile(p_userId: string) {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -423,6 +440,10 @@ function Section({
                     >
                       {isMarking ? "Marking…" : "Mark as completed"}
                     </button>
+                  ) : isCompleted ? (
+                    <div style={{ fontWeight: 900, alignSelf: "center" }}>
+                      ✅ Successfully completed
+                    </div>
                   ) : isWaitingCustomer || isMarkedLocal ? (
                     <div
                       style={{
@@ -441,8 +462,6 @@ function Section({
                     >
                       Waiting for customer confirmation…
                     </div>
-                  ) : isCompleted ? (
-                    <div style={{ fontWeight: 900, alignSelf: "center" }}>✅ Successfully completed</div>
                   ) : null}
                 </div>
 
