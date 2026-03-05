@@ -27,6 +27,12 @@ type DashItem = {
   customer_address: string | null;
 };
 
+type HandymanProfile = {
+  full_name: string | null;
+  phone: string | null;
+  created_at: string | null;
+};
+
 function norm(v: string | null | undefined) {
   return (v || "").toLowerCase().trim();
 }
@@ -34,6 +40,13 @@ function norm(v: string | null | undefined) {
 function money(cents: number | null) {
   const v = Number(cents ?? 0);
   return `$${(v / 100).toFixed(2)}`;
+}
+
+function safeDateShort(v: string | null | undefined) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US");
 }
 
 export default function HandymanDashboardPage() {
@@ -45,6 +58,12 @@ export default function HandymanDashboardPage() {
 
   const [userId, setUserId] = useState<string | null>(null);
 
+  // ✅ Handyman info
+  const [handymanName, setHandymanName] = useState<string>("—");
+  const [handymanPhone, setHandymanPhone] = useState<string>("—");
+  const [handymanEmail, setHandymanEmail] = useState<string>("—");
+  const [handymanSince, setHandymanSince] = useState<string>("—");
+
   const [walletUsd, setWalletUsd] = useState("0.00");
   const [items, setItems] = useState<DashItem[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("");
@@ -52,6 +71,33 @@ export default function HandymanDashboardPage() {
   // local UI hint (ok to keep, but DB status is the source of truth)
   const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
   const [markingId, setMarkingId] = useState<string | null>(null);
+
+  async function loadHandymanProfile(p_userId: string) {
+    // 1) email from auth
+    const { data: sessionData } = await supabase.auth.getSession();
+    const email = sessionData.session?.user?.email ?? null;
+    setHandymanEmail(email || "—");
+
+    // 2) profile from table
+    const { data, error } = await supabase
+      .from("handyman_profiles")
+      .select("full_name, phone, created_at")
+      .eq("id", p_userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("handyman_profiles select error:", error);
+      // don’t block dashboard if profile read fails
+      return;
+    }
+
+    const row = (data || null) as HandymanProfile | null;
+    if (!row) return;
+
+    setHandymanName(row.full_name || "—");
+    setHandymanPhone(row.phone || "—");
+    setHandymanSince(row.created_at ? safeDateShort(row.created_at) : "—");
+  }
 
   async function refreshWallet() {
     const { data, error } = await supabase.rpc("get_wallet_balance_cents");
@@ -105,6 +151,9 @@ export default function HandymanDashboardPage() {
 
       setUserId(user.id);
 
+      // ✅ load handyman info once at boot
+      await loadHandymanProfile(user.id);
+
       await refreshAll();
 
       if (!mounted) return;
@@ -113,10 +162,15 @@ export default function HandymanDashboardPage() {
 
     boot();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const u = session?.user;
-      if (!u) router.push("/handyman/login");
-      else setUserId(u.id);
+      if (!u) {
+        router.push("/handyman/login");
+      } else {
+        setUserId(u.id);
+        // refresh handyman email if needed
+        setHandymanEmail(u.email || "—");
+      }
     });
 
     return () => {
@@ -235,7 +289,24 @@ export default function HandymanDashboardPage() {
         <div>
           <h1 style={h1}>Handyman Dashboard</h1>
 
-          <div style={{ marginTop: 8, fontSize: 18 }}>
+          {/* ✅ Handyman info block */}
+          <div style={profileBox}>
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>Your profile</div>
+            <div>
+              <b>Name:</b> {handymanName}
+            </div>
+            <div>
+              <b>Phone:</b> {handymanPhone}
+            </div>
+            <div>
+              <b>Email:</b> {handymanEmail}
+            </div>
+            <div>
+              <b>Member since:</b> {handymanSince}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 18 }}>
             Wallet balance: <b>${walletUsd}</b>
           </div>
 
@@ -252,7 +323,10 @@ export default function HandymanDashboardPage() {
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button style={btn} onClick={refreshAll} disabled={refreshing}>
+          <button style={btn} onClick={async () => {
+            if (userId) await loadHandymanProfile(userId);
+            await refreshAll();
+          }} disabled={refreshing}>
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
 
@@ -341,7 +415,6 @@ function Section({
                     </div>
                   </div>
 
-                  {/* ✅ FIXED LOGIC */}
                   {showMarkBtn ? (
                     <button
                       type="button"
@@ -356,25 +429,25 @@ function Section({
                     >
                       {isMarking ? "Marking…" : "Mark as completed"}
                     </button>
-                 ) : isWaitingCustomer || isMarkedLocal ? (
-                  <div
-                    style={{
-                      ...btnSmall,
-                      background: "#fff",
-                      cursor: "default",
-                      border: "2px solid #000",
-                      opacity: 1,
-                      alignSelf: "center",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: 44,
-                    }}
-                    title="Waiting for the customer to confirm on the tracking page."
-                  >
-                    Waiting for customer confirmation…
-                  </div>
-                ) : isCompleted ? (
+                  ) : isWaitingCustomer || isMarkedLocal ? (
+                    <div
+                      style={{
+                        ...btnSmall,
+                        background: "#fff",
+                        cursor: "default",
+                        border: "2px solid #000",
+                        opacity: 1,
+                        alignSelf: "center",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        height: 44,
+                      }}
+                      title="Waiting for the customer to confirm on the tracking page."
+                    >
+                      Waiting for customer confirmation…
+                    </div>
+                  ) : isCompleted ? (
                     <div style={{ fontWeight: 900, alignSelf: "center" }}>
                       ✅ Successfully completed
                     </div>
@@ -497,4 +570,12 @@ const contactBox: React.CSSProperties = {
   padding: 12,
   border: "1px solid #000",
   background: "#fff",
+};
+
+const profileBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 12,
+  border: "1px solid #ddd",
+  background: "#fff",
+  maxWidth: 560,
 };
