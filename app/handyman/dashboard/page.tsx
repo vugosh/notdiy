@@ -7,15 +7,15 @@ import { supabase } from "@/lib/supabaseClient";
 
 type DashItem = {
   offer_id: string;
-  offer_status: string | null; // pending/accepted/rejected/...
+  offer_status: string | null; // pending/accepted/rejected (offers.status)
   price_cents: number | null;
   offer_message: string | null;
   offer_created_at: string | null;
 
   request_id: string;
-  request_status: string | null; // ✅ this is requests.job_status
+  request_status: string | null; // (legacy if you still have it)
+  request_job_status: string | null; // ✅ NEW: requests.job_status
   request_created_at: string | null;
-  completed_at?: string | null; // ✅ optional (if you added in SQL)
   title: string | null;
   description: string | null;
   zip: string | null;
@@ -59,7 +59,7 @@ export default function HandymanDashboardPage() {
 
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Handyman info
+  // Handyman profile
   const [handymanName, setHandymanName] = useState<string>("—");
   const [handymanPhone, setHandymanPhone] = useState<string>("—");
   const [handymanEmail, setHandymanEmail] = useState<string>("—");
@@ -69,28 +69,12 @@ export default function HandymanDashboardPage() {
   const [items, setItems] = useState<DashItem[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
-  // local UI hint
+  // local UI hint (optional)
   const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
-const [markingId, setMarkingId] = useState<string | null>(null);
-
-useEffect(() => {
-  if (items.length === 0) return;
-
-  setMarkedCompletedIds((prev) => {
-    const next = new Set(prev);
-
-    for (const it of items) {
-      const reqSt = norm(it.request_status);
-      if (reqSt === "completed") {
-        next.delete(it.request_id);
-      }
-    }
-
-    return next;
-  });
-}, [items]);
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   async function loadHandymanProfile(p_userId: string) {
+    // email from auth
     const { data: sessionData } = await supabase.auth.getSession();
     const email = sessionData.session?.user?.email ?? null;
     setHandymanEmail(email || "—");
@@ -165,6 +149,7 @@ useEffect(() => {
       }
 
       setUserId(user.id);
+
       await loadHandymanProfile(user.id);
       await refreshAll();
 
@@ -190,12 +175,14 @@ useEffect(() => {
     };
   }, [router]);
 
-  // offers + wallet changes
+  // ✅ Realtime: offers + wallet changes -> auto refresh
+  // NOTE: job_status changes are on requests table; easiest is: refresh on offers change + manual refresh.
+  // If you want realtime on requests too, we can add it later.
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel(`handyman-dashboard-offers-${userId}`)
+      .channel(`handyman-dashboard-${userId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "offers", filter: `handyman_id=eq.${userId}` },
@@ -218,35 +205,6 @@ useEffect(() => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-
-  // ✅ NEW: requests updates for visible request_ids (customer confirms => requests.job_status changes)
-  const requestIds = useMemo(() => {
-    const ids = items.map((x) => x.request_id).filter(Boolean);
-    return Array.from(new Set(ids));
-  }, [items]);
-
-  useEffect(() => {
-    if (!userId) return;
-    if (requestIds.length === 0) return;
-
-    const filter = `id=in.(${requestIds.join(",")})`;
-
-    const channel = supabase
-      .channel(`handyman-dashboard-requests-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "requests", filter },
-        async () => {
-          await refreshAll();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, requestIds.join(",")]);
 
   async function handleLogout() {
     setMessage("");
@@ -275,16 +233,11 @@ useEffect(() => {
           return;
         }
 
-        if (msg.includes("NOT_ALLOWED")) {
-          setMessage("You are not allowed to update this job.");
-        } else if (msg.includes("NOT_AUTHENTICATED")) {
+        if (msg.includes("NOT_ALLOWED")) setMessage("You are not allowed to update this job.");
+        else if (msg.includes("NOT_AUTHENTICATED")) {
           setMessage("Please login again.");
           router.push("/handyman/login");
-        } else if (raw.includes("does not exist")) {
-          setMessage("RPC missing: handyman_mark_completed is not created yet in Supabase.");
-        } else {
-          setMessage(raw);
-        }
+        } else setMessage(raw);
         return;
       }
 
@@ -297,7 +250,10 @@ useEffect(() => {
   }
 
   const pending = useMemo(() => items.filter((x) => norm(x.offer_status) === "pending"), [items]);
+
+  // ✅ Accepted section should include accepted offers even if job completed/waiting
   const accepted = useMemo(() => items.filter((x) => norm(x.offer_status) === "accepted"), [items]);
+
   const rejected = useMemo(() => items.filter((x) => norm(x.offer_status) === "rejected"), [items]);
 
   return (
@@ -323,9 +279,7 @@ useEffect(() => {
           </div>
 
           {lastUpdated ? (
-            <div style={{ marginTop: 6, fontSize: 12, color: "#777" }}>
-              Last updated: {lastUpdated}
-            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: "#777" }}>Last updated: {lastUpdated}</div>
           ) : null}
         </div>
 
@@ -345,9 +299,7 @@ useEffect(() => {
             <button style={btn}>Find jobs</button>
           </Link>
 
-          <button style={btn} onClick={handleLogout}>
-            Logout
-          </button>
+          <button style={btn} onClick={handleLogout}>Logout</button>
         </div>
       </div>
 
@@ -402,19 +354,25 @@ function Section({
             const canMarkCompleted = !!showContact && !!onMarkCompleted;
             const isMarking = markingId === x.request_id;
 
-            // ✅ request_status is SOURCE OF TRUTH (requests.job_status)
-            const reqSt = norm(x.request_status);
-            const isWaitingCustomer = reqSt === "waiting_customer_confirmation";
-            const isCompleted = reqSt === "completed";
-
             // offer status
             const offerSt = norm(x.offer_status);
             const isAcceptedOffer = offerSt === "accepted";
 
+            // ✅ REQUEST job status is source of truth for completion stages
+            const jobSt = norm(x.request_job_status); // requests.job_status
+            const isWaitingCustomer = jobSt === "waiting_customer_confirmation";
+            const isCompleted = jobSt === "completed";
+
+            // local hint (secondary)
             const isMarkedLocal = markedCompletedIds?.has(x.request_id) ?? false;
 
-            // show Mark button only when offer accepted AND request NOT waiting/completed
-            const showMarkBtn = canMarkCompleted && isAcceptedOffer && !isWaitingCustomer && !isCompleted && !isMarkedLocal;
+            // ✅ Show mark button ONLY if accepted offer AND NOT waiting/completed
+            const showMarkBtn =
+              canMarkCompleted &&
+              isAcceptedOffer &&
+              !isWaitingCustomer &&
+              !isCompleted &&
+              !isMarkedLocal;
 
             return (
               <div key={x.offer_id} style={jobCard}>
@@ -422,7 +380,8 @@ function Section({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 22, fontWeight: 900 }}>{x.title || "Untitled job"}</div>
                     <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
-                      Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price: <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
+                      Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
+                      <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
                     </div>
                   </div>
 
@@ -440,10 +399,6 @@ function Section({
                     >
                       {isMarking ? "Marking…" : "Mark as completed"}
                     </button>
-                  ) : isCompleted ? (
-                    <div style={{ fontWeight: 900, alignSelf: "center" }}>
-                      ✅ Successfully completed
-                    </div>
                   ) : isWaitingCustomer || isMarkedLocal ? (
                     <div
                       style={{
@@ -461,6 +416,23 @@ function Section({
                       title="Waiting for the customer to confirm on the tracking page."
                     >
                       Waiting for customer confirmation…
+                    </div>
+                  ) : isCompleted ? (
+                    <div
+                      style={{
+                        ...btnSmall,
+                        background: "#fff",
+                        cursor: "default",
+                        border: "2px solid #000",
+                        alignSelf: "center",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        height: 44,
+                      }}
+                      title="This job is completed."
+                    >
+                      ✅ Successfully completed
                     </div>
                   ) : null}
                 </div>
@@ -491,18 +463,10 @@ function Section({
                 {showContact ? (
                   <div style={contactBox}>
                     <div style={{ fontWeight: 900, marginBottom: 6 }}>Customer contact</div>
-                    <div>
-                      <b>Name:</b> {x.customer_first_name || "—"} {x.customer_last_name || ""}
-                    </div>
-                    <div>
-                      <b>Phone:</b> {x.customer_phone || "—"}
-                    </div>
-                    <div>
-                      <b>Email:</b> {x.customer_email || "—"}
-                    </div>
-                    <div>
-                      <b>Address:</b> {x.customer_address || "—"}
-                    </div>
+                    <div><b>Name:</b> {x.customer_first_name || "—"} {x.customer_last_name || ""}</div>
+                    <div><b>Phone:</b> {x.customer_phone || "—"}</div>
+                    <div><b>Email:</b> {x.customer_email || "—"}</div>
+                    <div><b>Address:</b> {x.customer_address || "—"}</div>
                   </div>
                 ) : (
                   <div style={{ marginTop: 10, fontSize: 12, color: "#777" }}>
@@ -519,11 +483,7 @@ function Section({
 }
 
 /* styles */
-const pageWrap: React.CSSProperties = {
-  maxWidth: 1100,
-  margin: "0 auto",
-  padding: "28px 24px 60px",
-};
+const pageWrap: React.CSSProperties = { maxWidth: 1100, margin: "0 auto", padding: "28px 24px 60px" };
 
 const topBar: React.CSSProperties = {
   display: "flex",
@@ -533,11 +493,7 @@ const topBar: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const h1: React.CSSProperties = {
-  margin: 0,
-  fontSize: 52,
-  letterSpacing: "-0.5px",
-};
+const h1: React.CSSProperties = { margin: 0, fontSize: 52, letterSpacing: "-0.5px" };
 
 const btn: React.CSSProperties = {
   padding: "10px 18px",
@@ -564,24 +520,11 @@ const notice: React.CSSProperties = {
   color: "#111",
 };
 
-const card: React.CSSProperties = {
-  border: "1px solid #e6e6e6",
-  background: "#fff",
-  padding: 16,
-};
+const card: React.CSSProperties = { border: "1px solid #e6e6e6", background: "#fff", padding: 16 };
 
-const jobCard: React.CSSProperties = {
-  border: "1px solid #eee",
-  padding: 14,
-  background: "#fff",
-};
+const jobCard: React.CSSProperties = { border: "1px solid #eee", padding: 14, background: "#fff" };
 
-const contactBox: React.CSSProperties = {
-  marginTop: 12,
-  padding: 12,
-  border: "1px solid #000",
-  background: "#fff",
-};
+const contactBox: React.CSSProperties = { marginTop: 12, padding: 12, border: "1px solid #000", background: "#fff" };
 
 const profileBox: React.CSSProperties = {
   marginTop: 14,
