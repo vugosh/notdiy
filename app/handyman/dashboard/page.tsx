@@ -185,9 +185,15 @@ export default function HandymanDashboardPage() {
         const raw = error.message || "";
         const msg = raw.toUpperCase();
 
-        // ✅ KEY FIX: "ALREADY_MARKED" / already in waiting confirmation => do not show as error
+        // ✅ FIX: ALREADY_MARKED / NOT_IN_PROGRESS -> no error message,
+        // and ALSO mark locally so button turns into "Waiting..."
         if (msg.includes("ALREADY_MARKED") || msg.includes("NOT_IN_PROGRESS")) {
-          // just refresh UI; button will turn into "Waiting for customer confirmation…"
+          setMarkedCompletedIds((prev) => {
+            const next = new Set(prev);
+            next.add(requestId);
+            return next;
+          });
+
           await refreshAll();
           return;
         }
@@ -205,7 +211,7 @@ export default function HandymanDashboardPage() {
         return;
       }
 
-      // local hint (optional)
+      // ✅ SUCCESS: mark locally so UI changes immediately
       setMarkedCompletedIds((prev) => {
         const next = new Set(prev);
         next.add(requestId);
@@ -314,14 +320,15 @@ function Section({
             // ✅ DB is source of truth
             const st = norm(x.offer_status);
             const isAccepted = st === "accepted";
-            const isWaitingCustomer = st === "marked_completed" || st === "waiting_customer_confirmation";
+            const isWaitingCustomer =
+              st === "marked_completed" || st === "waiting_customer_confirmation";
             const isCompleted = st === "completed";
 
             // local hint (secondary)
             const isMarkedLocal = markedCompletedIds?.has(x.request_id) ?? false;
 
-            // button only when ACCEPTED
-            const showMarkBtn = canMarkCompleted && isAccepted;
+            // ✅ button only when ACCEPTED and NOT locally marked
+            const showMarkBtn = canMarkCompleted && isAccepted && !isMarkedLocal;
 
             return (
               <div key={x.offer_id} style={jobCard}>
@@ -349,16 +356,13 @@ function Section({
                     >
                       {isMarking ? "Marking…" : "Mark as completed"}
                     </button>
-                  ) : isWaitingCustomer ? (
+                  ) : isWaitingCustomer || isMarkedLocal ? (
                     <div style={{ fontWeight: 900, alignSelf: "center" }}>
                       Waiting for customer confirmation…
                     </div>
                   ) : isCompleted ? (
-                    <div style={{ fontWeight: 900, alignSelf: "center" }}>✅ Successfully completed</div>
-                  ) : isMarkedLocal ? (
-                    // fallback only if local says marked, but DB doesn't yet
                     <div style={{ fontWeight: 900, alignSelf: "center" }}>
-                      Waiting for customer confirmation…
+                      ✅ Successfully completed
                     </div>
                   ) : null}
                 </div>
