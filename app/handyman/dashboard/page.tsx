@@ -7,14 +7,15 @@ import { supabase } from "@/lib/supabaseClient";
 
 type DashItem = {
   offer_id: string;
-  offer_status: string | null; // pending/accepted/rejected/marked_completed/completed
+  offer_status: string | null; // pending/accepted/rejected/...
   price_cents: number | null;
   offer_message: string | null;
   offer_created_at: string | null;
 
   request_id: string;
-  request_status: string | null;
+  request_status: string | null; // ✅ this is requests.job_status
   request_created_at: string | null;
+  completed_at?: string | null; // ✅ optional (if you added in SQL)
   title: string | null;
   description: string | null;
   zip: string | null;
@@ -58,7 +59,7 @@ export default function HandymanDashboardPage() {
 
   const [userId, setUserId] = useState<string | null>(null);
 
-  // ✅ Handyman info
+  // Handyman info
   const [handymanName, setHandymanName] = useState<string>("—");
   const [handymanPhone, setHandymanPhone] = useState<string>("—");
   const [handymanEmail, setHandymanEmail] = useState<string>("—");
@@ -68,17 +69,15 @@ export default function HandymanDashboardPage() {
   const [items, setItems] = useState<DashItem[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
-  // local UI hint (ok to keep, but DB status is the source of truth)
+  // local UI hint
   const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
   const [markingId, setMarkingId] = useState<string | null>(null);
 
   async function loadHandymanProfile(p_userId: string) {
-    // 1) email from auth
     const { data: sessionData } = await supabase.auth.getSession();
     const email = sessionData.session?.user?.email ?? null;
     setHandymanEmail(email || "—");
 
-    // 2) profile from table
     const { data, error } = await supabase
       .from("handyman_profiles")
       .select("full_name, phone, created_at")
@@ -87,7 +86,6 @@ export default function HandymanDashboardPage() {
 
     if (error) {
       console.error("handyman_profiles select error:", error);
-      // don’t block dashboard if profile read fails
       return;
     }
 
@@ -150,10 +148,7 @@ export default function HandymanDashboardPage() {
       }
 
       setUserId(user.id);
-
-      // ✅ load handyman info once at boot
       await loadHandymanProfile(user.id);
-
       await refreshAll();
 
       if (!mounted) return;
@@ -168,7 +163,6 @@ export default function HandymanDashboardPage() {
         router.push("/handyman/login");
       } else {
         setUserId(u.id);
-        // refresh handyman email if needed
         setHandymanEmail(u.email || "—");
       }
     });
@@ -179,32 +173,22 @@ export default function HandymanDashboardPage() {
     };
   }, [router]);
 
-  // ✅ Realtime: offers + wallet changes -> auto refresh
+  // offers + wallet changes
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel(`handyman-dashboard-${userId}`)
+      .channel(`handyman-dashboard-offers-${userId}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "offers",
-          filter: `handyman_id=eq.${userId}`,
-        },
+        { event: "*", schema: "public", table: "offers", filter: `handyman_id=eq.${userId}` },
         async () => {
           await refreshAll();
         }
       )
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "wallet_transactions",
-          filter: `handyman_id=eq.${userId}`,
-        },
+        { event: "INSERT", schema: "public", table: "wallet_transactions", filter: `handyman_id=eq.${userId}` },
         async () => {
           await refreshWallet();
           setLastUpdated(new Date().toLocaleString());
@@ -217,6 +201,35 @@ export default function HandymanDashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  // ✅ NEW: requests updates for visible request_ids (customer confirms => requests.job_status changes)
+  const requestIds = useMemo(() => {
+    const ids = items.map((x) => x.request_id).filter(Boolean);
+    return Array.from(new Set(ids));
+  }, [items]);
+
+  useEffect(() => {
+    if (!userId) return;
+    if (requestIds.length === 0) return;
+
+    const filter = `id=in.(${requestIds.join(",")})`;
+
+    const channel = supabase
+      .channel(`handyman-dashboard-requests-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "requests", filter },
+        async () => {
+          await refreshAll();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, requestIds.join(",")]);
 
   async function handleLogout() {
     setMessage("");
@@ -239,15 +252,8 @@ export default function HandymanDashboardPage() {
         const raw = error.message || "";
         const msg = raw.toUpperCase();
 
-        // ✅ FIX: ALREADY_MARKED / NOT_IN_PROGRESS -> no error message,
-        // and ALSO mark locally so button turns into "Waiting..."
         if (msg.includes("ALREADY_MARKED") || msg.includes("NOT_IN_PROGRESS")) {
-          setMarkedCompletedIds((prev) => {
-            const next = new Set(prev);
-            next.add(requestId);
-            return next;
-          });
-
+          setMarkedCompletedIds((prev) => new Set(prev).add(requestId));
           await refreshAll();
           return;
         }
@@ -265,13 +271,7 @@ export default function HandymanDashboardPage() {
         return;
       }
 
-      // ✅ SUCCESS: mark locally so UI changes immediately
-      setMarkedCompletedIds((prev) => {
-        const next = new Set(prev);
-        next.add(requestId);
-        return next;
-      });
-
+      setMarkedCompletedIds((prev) => new Set(prev).add(requestId));
       setMessage("Marked completed ✅ Ask the customer to confirm now (on their tracking page).");
       await refreshAll();
     } finally {
@@ -289,21 +289,12 @@ export default function HandymanDashboardPage() {
         <div>
           <h1 style={h1}>Handyman Dashboard</h1>
 
-          {/* ✅ Handyman info block */}
           <div style={profileBox}>
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Your profile</div>
-            <div>
-              <b>Name:</b> {handymanName}
-            </div>
-            <div>
-              <b>Phone:</b> {handymanPhone}
-            </div>
-            <div>
-              <b>Email:</b> {handymanEmail}
-            </div>
-            <div>
-              <b>Member since:</b> {handymanSince}
-            </div>
+            <div><b>Name:</b> {handymanName}</div>
+            <div><b>Phone:</b> {handymanPhone}</div>
+            <div><b>Email:</b> {handymanEmail}</div>
+            <div><b>Member since:</b> {handymanSince}</div>
           </div>
 
           <div style={{ marginTop: 10, fontSize: 18 }}>
@@ -311,8 +302,7 @@ export default function HandymanDashboardPage() {
           </div>
 
           <div style={{ marginTop: 6, color: "#666" }}>
-            Pending: <b>{pending.length}</b> • Accepted: <b>{accepted.length}</b> • Rejected:{" "}
-            <b>{rejected.length}</b>
+            Pending: <b>{pending.length}</b> • Accepted: <b>{accepted.length}</b> • Rejected: <b>{rejected.length}</b>
           </div>
 
           {lastUpdated ? (
@@ -323,10 +313,14 @@ export default function HandymanDashboardPage() {
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button style={btn} onClick={async () => {
-            if (userId) await loadHandymanProfile(userId);
-            await refreshAll();
-          }} disabled={refreshing}>
+          <button
+            style={btn}
+            onClick={async () => {
+              if (userId) await loadHandymanProfile(userId);
+              await refreshAll();
+            }}
+            disabled={refreshing}
+          >
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
 
@@ -391,18 +385,19 @@ function Section({
             const canMarkCompleted = !!showContact && !!onMarkCompleted;
             const isMarking = markingId === x.request_id;
 
-            // ✅ DB is source of truth
-            const st = norm(x.offer_status);
-            const isAccepted = st === "accepted";
-            const isWaitingCustomer =
-              st === "marked_completed" || st === "waiting_customer_confirmation";
-            const isCompleted = st === "completed";
+            // ✅ request_status is SOURCE OF TRUTH (requests.job_status)
+            const reqSt = norm(x.request_status);
+            const isWaitingCustomer = reqSt === "waiting_customer_confirmation";
+            const isCompleted = reqSt === "completed";
 
-            // local hint (secondary)
+            // offer status
+            const offerSt = norm(x.offer_status);
+            const isAcceptedOffer = offerSt === "accepted";
+
             const isMarkedLocal = markedCompletedIds?.has(x.request_id) ?? false;
 
-            // ✅ button only when ACCEPTED and NOT locally marked
-            const showMarkBtn = canMarkCompleted && isAccepted && !isMarkedLocal;
+            // show Mark button only when offer accepted AND request NOT waiting/completed
+            const showMarkBtn = canMarkCompleted && isAcceptedOffer && !isWaitingCustomer && !isCompleted && !isMarkedLocal;
 
             return (
               <div key={x.offer_id} style={jobCard}>
@@ -410,8 +405,7 @@ function Section({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 22, fontWeight: 900 }}>{x.title || "Untitled job"}</div>
                     <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
-                      Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
-                      <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
+                      Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price: <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
                     </div>
                   </div>
 
@@ -448,9 +442,7 @@ function Section({
                       Waiting for customer confirmation…
                     </div>
                   ) : isCompleted ? (
-                    <div style={{ fontWeight: 900, alignSelf: "center" }}>
-                      ✅ Successfully completed
-                    </div>
+                    <div style={{ fontWeight: 900, alignSelf: "center" }}>✅ Successfully completed</div>
                   ) : null}
                 </div>
 
