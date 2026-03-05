@@ -356,11 +356,25 @@ function Section({
                     >
                       {isMarking ? "Marking…" : "Mark as completed"}
                     </button>
-                  ) : isWaitingCustomer || isMarkedLocal ? (
-                    <div style={{ fontWeight: 900, alignSelf: "center" }}>
-                      Waiting for customer confirmation…
-                    </div>
-                  ) : isCompleted ? (
+                 ) : isWaitingCustomer || isMarkedLocal ? (
+                  <div
+                    style={{
+                      ...btnSmall,
+                      background: "#fff",
+                      cursor: "default",
+                      border: "2px solid #000",
+                      opacity: 1,
+                      alignSelf: "center",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      height: 44,
+                    }}
+                    title="Waiting for the customer to confirm on the tracking page."
+                  >
+                    Waiting for customer confirmation…
+                  </div>
+                ) : isCompleted ? (
                     <div style={{ fontWeight: 900, alignSelf: "center" }}>
                       ✅ Successfully completed
                     </div>
