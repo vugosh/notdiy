@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 type DashItem = {
   offer_id: string;
-  offer_status: string | null;
+  offer_status: string | null; // pending/accepted/rejected/marked_completed/completed
   price_cents: number | null;
   offer_message: string | null;
   offer_created_at: string | null;
@@ -31,6 +31,11 @@ function norm(v: string | null | undefined) {
   return (v || "").toLowerCase().trim();
 }
 
+function money(cents: number | null) {
+  const v = Number(cents ?? 0);
+  return `$${(v / 100).toFixed(2)}`;
+}
+
 export default function HandymanDashboardPage() {
   const router = useRouter();
 
@@ -44,7 +49,7 @@ export default function HandymanDashboardPage() {
   const [items, setItems] = useState<DashItem[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
-  // ✅ local: hansı request “completed” mark edilib (UI disable üçün)
+  // local UI hint (ok to keep, but DB status is the source of truth)
   const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
   const [markingId, setMarkingId] = useState<string | null>(null);
 
@@ -108,7 +113,6 @@ export default function HandymanDashboardPage() {
 
     boot();
 
-    // auth dəyişəndə də yönləndirək
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user;
       if (!u) router.push("/handyman/login");
@@ -121,13 +125,12 @@ export default function HandymanDashboardPage() {
     };
   }, [router]);
 
-  // ✅ Realtime: offer accept/reject + wallet change olduqda dashboard auto refresh
+  // ✅ Realtime: offers + wallet changes -> auto refresh
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
       .channel(`handyman-dashboard-${userId}`)
-      // offers insert/update/delete
       .on(
         "postgres_changes",
         {
@@ -140,7 +143,6 @@ export default function HandymanDashboardPage() {
           await refreshAll();
         }
       )
-      // wallet txns insert (balance change)
       .on(
         "postgres_changes",
         {
@@ -180,51 +182,46 @@ export default function HandymanDashboardPage() {
       });
 
       if (error) {
-        const msg = (error.message || "").toUpperCase();
+        const raw = error.message || "";
+        const msg = raw.toUpperCase();
 
-        if (msg.includes("NOT_IN_PROGRESS")) {
-          setMessage("This job is not in progress (already marked or completed).");
-        } else if (msg.includes("NOT_ALLOWED")) {
+        // ✅ KEY FIX: "ALREADY_MARKED" / already in waiting confirmation => do not show as error
+        if (msg.includes("ALREADY_MARKED") || msg.includes("NOT_IN_PROGRESS")) {
+          // just refresh UI; button will turn into "Waiting for customer confirmation…"
+          await refreshAll();
+          return;
+        }
+
+        if (msg.includes("NOT_ALLOWED")) {
           setMessage("You are not allowed to update this job.");
         } else if (msg.includes("NOT_AUTHENTICATED")) {
           setMessage("Please login again.");
           router.push("/handyman/login");
-        } else if (error.message.includes("does not exist")) {
+        } else if (raw.includes("does not exist")) {
           setMessage("RPC missing: handyman_mark_completed is not created yet in Supabase.");
         } else {
-          setMessage(error.message);
+          setMessage(raw);
         }
         return;
       }
 
-      // ✅ UI disable et
+      // local hint (optional)
       setMarkedCompletedIds((prev) => {
         const next = new Set(prev);
         next.add(requestId);
         return next;
       });
 
-      setMessage("Marked completed ✅ Please ask the customer to confirm now (on their tracking page).");
-
-      // refresh list (istəsən qalmasın, amma yaxşıdır)
+      setMessage("Marked completed ✅ Ask the customer to confirm now (on their tracking page).");
       await refreshAll();
     } finally {
       setMarkingId(null);
     }
   }
 
-  const pending = useMemo(
-    () => items.filter((x) => norm(x.offer_status) === "pending"),
-    [items]
-  );
-  const accepted = useMemo(
-    () => items.filter((x) => norm(x.offer_status) === "accepted"),
-    [items]
-  );
-  const rejected = useMemo(
-    () => items.filter((x) => norm(x.offer_status) === "rejected"),
-    [items]
-  );
+  const pending = useMemo(() => items.filter((x) => norm(x.offer_status) === "pending"), [items]);
+  const accepted = useMemo(() => items.filter((x) => norm(x.offer_status) === "accepted"), [items]);
+  const rejected = useMemo(() => items.filter((x) => norm(x.offer_status) === "rejected"), [items]);
 
   return (
     <div style={pageWrap}>
@@ -303,8 +300,7 @@ function Section({
   return (
     <div style={card}>
       <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 12 }}>
-        {title}{" "}
-        <span style={{ color: "#666", fontWeight: 700 }}>({items.length})</span>
+        {title} <span style={{ color: "#666", fontWeight: 700 }}>({items.length})</span>
       </div>
 
       {items.length === 0 ? (
@@ -314,42 +310,60 @@ function Section({
           {items.map((x) => {
             const canMarkCompleted = !!showContact && !!onMarkCompleted;
             const isMarking = markingId === x.request_id;
-            const isMarked = markedCompletedIds?.has(x.request_id) ?? false;
+
+            // ✅ DB is source of truth
+            const st = norm(x.offer_status);
+            const isAccepted = st === "accepted";
+            const isWaitingCustomer = st === "marked_completed" || st === "waiting_customer_confirmation";
+            const isCompleted = st === "completed";
+
+            // local hint (secondary)
+            const isMarkedLocal = markedCompletedIds?.has(x.request_id) ?? false;
+
+            // button only when ACCEPTED
+            const showMarkBtn = canMarkCompleted && isAccepted;
 
             return (
               <div key={x.offer_id} style={jobCard}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 22, fontWeight: 900 }}>
-                      {x.title || "Untitled job"}
-                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 900 }}>{x.title || "Untitled job"}</div>
                     <div style={{ color: "#666", marginTop: 4, fontSize: 13 }}>
                       Offer: <b>{(x.offer_status || "—").toUpperCase()}</b> • Price:{" "}
                       <b>{money(x.price_cents)}</b> • ZIP: {x.zip || "—"}
                     </div>
                   </div>
 
-                  {canMarkCompleted ? (
+                  {/* ✅ FIXED LOGIC */}
+                  {showMarkBtn ? (
                     <button
                       type="button"
                       style={{
                         ...btnSmall,
-                        background: isMarked ? "#eee" : "#fff",
-                        cursor: isMarked ? "not-allowed" : "pointer",
+                        cursor: isMarking ? "not-allowed" : "pointer",
                         opacity: isMarking ? 0.7 : 1,
                       }}
-                      disabled={isMarked || isMarking}
-                      onClick={() => onMarkCompleted(x.request_id)}
+                      disabled={isMarking}
+                      onClick={() => onMarkCompleted!(x.request_id)}
                       title="After finishing the job, mark it completed so the customer can confirm."
                     >
-                      {isMarked ? "Waiting customer confirm" : isMarking ? "Marking…" : "Mark as completed"}
+                      {isMarking ? "Marking…" : "Mark as completed"}
                     </button>
+                  ) : isWaitingCustomer ? (
+                    <div style={{ fontWeight: 900, alignSelf: "center" }}>
+                      Waiting for customer confirmation…
+                    </div>
+                  ) : isCompleted ? (
+                    <div style={{ fontWeight: 900, alignSelf: "center" }}>✅ Successfully completed</div>
+                  ) : isMarkedLocal ? (
+                    // fallback only if local says marked, but DB doesn't yet
+                    <div style={{ fontWeight: 900, alignSelf: "center" }}>
+                      Waiting for customer confirmation…
+                    </div>
                   ) : null}
                 </div>
 
-                <div style={{ marginTop: 10, fontWeight: 700 }}>
-                  {x.description || "—"}
-                </div>
+                <div style={{ marginTop: 10, fontWeight: 700 }}>{x.description || "—"}</div>
 
                 <div style={{ marginTop: 10, color: "#444" }}>
                   <b>Your message:</b> {x.offer_message || "—"}
@@ -374,9 +388,7 @@ function Section({
 
                 {showContact ? (
                   <div style={contactBox}>
-                    <div style={{ fontWeight: 900, marginBottom: 6 }}>
-                      Customer contact
-                    </div>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>Customer contact</div>
                     <div>
                       <b>Name:</b> {x.customer_first_name || "—"} {x.customer_last_name || ""}
                     </div>
@@ -402,11 +414,6 @@ function Section({
       )}
     </div>
   );
-}
-
-function money(cents: number | null) {
-  const v = Number(cents ?? 0);
-  return `$${(v / 100).toFixed(2)}`;
 }
 
 /* styles */
@@ -442,7 +449,6 @@ const btnSmall: React.CSSProperties = {
   padding: "10px 12px",
   border: "2px solid #000",
   background: "#fff",
-  cursor: "pointer",
   fontWeight: 900,
   whiteSpace: "nowrap",
   height: 44,
