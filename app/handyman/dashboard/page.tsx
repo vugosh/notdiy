@@ -69,6 +69,10 @@ export default function HandymanDashboardPage() {
   const [items, setItems] = useState<DashItem[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
+  const [showTopup, setShowTopup] = useState(false);
+const [topupAmount, setTopupAmount] = useState("");
+const [topupLoading, setTopupLoading] = useState(false);
+
   // local UI hint (optional)
   const [markedCompletedIds, setMarkedCompletedIds] = useState<Set<string>>(new Set());
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -206,6 +210,62 @@ export default function HandymanDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  async function handleTopup() {
+    setMessage("");
+  
+    const amount = Number(topupAmount);
+  
+    if (!amount || Number.isNaN(amount)) {
+      setMessage("Please enter a valid amount.");
+      return;
+    }
+  
+    if (amount < 5) {
+      setMessage("Minimum top up is $5.");
+      return;
+    }
+  
+    try {
+      setTopupLoading(true);
+  
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+  
+      if (!accessToken) {
+        setMessage("Please login again.");
+        router.push("/handyman/login");
+        return;
+      }
+  
+      const res = await fetch("/api/stripe/topup-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ amount }),
+      });
+  
+      const json = await res.json();
+  
+      if (!res.ok) {
+        setMessage(json.error || "Could not start payment.");
+        return;
+      }
+  
+      if (!json.url) {
+        setMessage("Stripe checkout URL not found.");
+        return;
+      }
+  
+      window.location.href = json.url;
+    } catch (e: any) {
+      setMessage(e.message || "Something went wrong.");
+    } finally {
+      setTopupLoading(false);
+    }
+  }
+
   async function handleLogout() {
     setMessage("");
     const { error } = await supabase.auth.signOut();
@@ -270,9 +330,25 @@ export default function HandymanDashboardPage() {
             <div><b>Member since:</b> {handymanSince}</div>
           </div>
 
-          <div style={{ marginTop: 10, fontSize: 18 }}>
-            Wallet balance: <b>${walletUsd}</b>
-          </div>
+          <div
+  style={{
+    marginTop: 10,
+    fontSize: 18,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+  }}
+>
+  <div>
+    Wallet balance: <b>${walletUsd}</b>
+  </div>
+
+  <button style={btn} onClick={() => setShowTopup(true)}>
+    Top up
+  </button>
+</div>
+
 
           <div style={{ marginTop: 6, color: "#666" }}>
             Pending: <b>{pending.length}</b> • Accepted: <b>{accepted.length}</b> • Rejected: <b>{rejected.length}</b>
@@ -321,6 +397,77 @@ export default function HandymanDashboardPage() {
           <Section title="Rejected offers" items={rejected} />
         </div>
       )}
+      {showTopup ? (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.45)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+      zIndex: 9999,
+    }}
+  >
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 420,
+        background: "#fff",
+        border: "2px solid #000",
+        padding: 20,
+      }}
+    >
+      <div style={{ fontSize: 26, fontWeight: 900, marginBottom: 12 }}>
+        Top up wallet
+      </div>
+
+      <div style={{ marginBottom: 8, fontWeight: 700 }}>Amount ($)</div>
+
+      <input
+        type="number"
+        min="5"
+        step="1"
+        value={topupAmount}
+        onChange={(e) => setTopupAmount(e.target.value)}
+        placeholder="Enter amount"
+        style={{
+          width: "100%",
+          padding: "12px 14px",
+          border: "2px solid #000",
+          fontSize: 18,
+          marginBottom: 14,
+        }}
+      />
+
+      <div style={{ fontSize: 13, color: "#666", marginBottom: 16 }}>
+        Minimum top up: $5
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          style={{ ...btn, flex: 1 }}
+          onClick={() => {
+            if (topupLoading) return;
+            setShowTopup(false);
+            setTopupAmount("");
+          }}
+        >
+          Cancel
+        </button>
+
+        <button
+          style={{ ...btn, flex: 1, background: "#000", color: "#fff" }}
+          onClick={handleTopup}
+          disabled={topupLoading}
+        >
+          {topupLoading ? "Opening..." : "Continue to payment"}
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
     </div>
   );
 }
